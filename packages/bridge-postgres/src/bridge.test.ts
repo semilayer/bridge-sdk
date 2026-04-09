@@ -232,6 +232,51 @@ describe('PostgresBridge', () => {
       expect(dataCall[0]).toContain('ORDER BY "name" ASC, "created_at" DESC')
     })
 
+    it('accepts record-shorthand orderBy { field: dir }', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      await bridge.query('items', {
+        // Drizzle-style shorthand — used to crash with `undefined.replace`.
+        orderBy: { cuisine: 'asc', title: 'desc' } as unknown as never,
+      })
+
+      const dataCall = mockPoolQuery.mock.calls[0]!
+      expect(dataCall[0]).toContain('ORDER BY "cuisine" ASC, "title" DESC')
+    })
+
+    it('rejects orderBy fields that are not valid identifiers', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      await expect(
+        bridge.query('items', {
+          orderBy: { 'cuisine; DROP TABLE users--': 'asc' } as unknown as never,
+        }),
+      ).rejects.toThrow('Invalid orderBy field')
+    })
+
+    it('ignores malformed orderBy entries instead of crashing', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      // Previously this crashed with `TypeError: Cannot read properties of
+      // undefined (reading 'replace')` because the bridge dereferenced
+      // `c.field` without checking.
+      await bridge.query('items', {
+        orderBy: [{} as never, { field: 'name', dir: 'asc' }],
+      })
+
+      const dataCall = mockPoolQuery.mock.calls[0]!
+      expect(dataCall[0]).toContain('ORDER BY "name" ASC')
+    })
+
     it('builds LIMIT and OFFSET', async () => {
       const bridge = await createConnectedBridge()
 
