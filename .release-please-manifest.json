@@ -1,5 +1,5 @@
 {
   "lib/bridge-sdk": "0.1.2",
-  "lib/bridge-resolver": "1.1.0",
-  "packages/bridge-postgres": "1.1.0"
+  "lib/bridge-resolver": "1.1.1",
+  "packages/bridge-postgres": "1.1.1"
 }
