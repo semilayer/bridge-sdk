@@ -1,0 +1,46 @@
+{
+  "name": "@semilayer/bridges",
+  "private": true,
+  "description": "SemiLayer bridges monorepo — bridge SDK, registry, and first-party database adapters",
+  "license": "MIT",
+  "author": "SemiLayer",
+  "homepage": "https://github.com/semilayer/bridge-sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/semilayer/bridge-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/semilayer/bridge-sdk/issues"
+  },
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev --concurrency=20",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "new-bridge": "tsx scripts/new-bridge.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "prettier": "^3.5.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.19.0",
+    "turbo": "^2.4.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.0.0"
+  }
+}

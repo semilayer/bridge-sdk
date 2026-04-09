@@ -2,13 +2,20 @@
 
 The home of every official SemiLayer database bridge — the SDK that defines the bridge interface, the registry that resolves bridge names at runtime, and every first-party adapter — all in one monorepo.
 
+## Layout
+
+This repo splits cleanly into two top-level directories:
+
+- **`lib/`** — the framework: the SDK that defines the Bridge interface, and the resolver/registry that maps bridge names to constructors. These rarely change.
+- **`packages/`** — the bridges themselves: one workspace package per database adapter. This is where the ecosystem grows.
+
 ## Packages
 
-| Package | Description |
-|---|---|
-| [`@semilayer/bridge-sdk`](./packages/bridge-sdk) | Bridge interface, `MockBridge`, and the `createBridgeTestSuite` compliance harness. Bridge authors depend on this. |
-| [`@semilayer/bridge-resolver`](./packages/bridge-resolver) | Built-in registry. `apps/worker` and `apps/service` in the SemiLayer monorepo consume this to resolve bridge names like `@semilayer/bridge-postgres` to constructors. |
-| [`@semilayer/bridge-postgres`](./packages/bridge-postgres) | First-party PostgreSQL adapter. Reference implementation for new bridges. |
+| Package | Path | Description |
+|---|---|---|
+| [`@semilayer/bridge-sdk`](./lib/bridge-sdk) | `lib/bridge-sdk` | Bridge interface, `MockBridge`, and the `createBridgeTestSuite` compliance harness. Bridge authors depend on this. |
+| [`@semilayer/bridge-resolver`](./lib/bridge-resolver) | `lib/bridge-resolver` | Built-in registry. `apps/worker` and `apps/service` in the SemiLayer monorepo consume this to resolve bridge names like `@semilayer/bridge-postgres` to constructors. |
+| [`@semilayer/bridge-postgres`](./packages/bridge-postgres) | `packages/bridge-postgres` | First-party PostgreSQL adapter. Reference implementation for new bridges. |
 
 More bridges (mysql, sqlite, mongodb, …) live as sibling packages under `packages/` and are released independently via release-please.
 

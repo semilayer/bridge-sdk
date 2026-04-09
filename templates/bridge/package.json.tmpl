@@ -1,0 +1,61 @@
+{
+  "name": "@semilayer/bridge-{{NAME}}",
+  "version": "0.0.0",
+  "description": "SemiLayer bridge for {{NAME}}",
+  "keywords": [
+    "semilayer",
+    "bridge",
+    "{{NAME}}",
+    "adapter"
+  ],
+  "license": "MIT",
+  "author": "SemiLayer",
+  "homepage": "https://github.com/semilayer/bridge-sdk/tree/main/packages/bridge-{{NAME}}#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/semilayer/bridge-sdk.git",
+    "directory": "packages/bridge-{{NAME}}"
+  },
+  "bugs": {
+    "url": "https://github.com/semilayer/bridge-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@semilayer/core": "^0.1.0"
+  },
+  "devDependencies": {
+    "@semilayer/bridge-sdk": "workspace:*",
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

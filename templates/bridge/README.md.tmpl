@@ -1,0 +1,30 @@
+# @semilayer/bridge-{{NAME}}
+
+SemiLayer bridge for {{NAME}}.
+
+## Install
+
+```bash
+npm install @semilayer/bridge-{{NAME}}
+```
+
+## Usage
+
+```ts
+import { {{NAME_PASCAL}}Bridge } from '@semilayer/bridge-{{NAME}}'
+
+const bridge = new {{NAME_PASCAL}}Bridge({
+  // TODO: connection options
+})
+
+await bridge.connect()
+const result = await bridge.read('my_table', { limit: 100 })
+```
+
+## Configuration
+
+TODO: document `{{NAME_PASCAL}}BridgeConfig` fields.
+
+## License
+
+MIT

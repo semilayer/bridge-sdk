@@ -1,0 +1,62 @@
+{
+  "name": "@semilayer/bridge-resolver",
+  "version": "1.0.0",
+  "description": "SemiLayer bridge resolver — built-in registry and dynamic bridge loading for first-party and community database adapters",
+  "keywords": [
+    "semilayer",
+    "bridge",
+    "resolver",
+    "registry",
+    "adapter"
+  ],
+  "license": "MIT",
+  "author": "SemiLayer",
+  "homepage": "https://github.com/semilayer/bridge-sdk/tree/main/lib/bridge-resolver#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/semilayer/bridge-sdk.git",
+    "directory": "lib/bridge-resolver"
+  },
+  "bugs": {
+    "url": "https://github.com/semilayer/bridge-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@semilayer/bridge-postgres": "workspace:*",
+    "@semilayer/core": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

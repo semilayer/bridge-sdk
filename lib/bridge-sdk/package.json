@@ -1,0 +1,62 @@
+{
+  "name": "@semilayer/bridge-sdk",
+  "version": "0.1.1",
+  "description": "SemiLayer Bridge SDK — adapter interface and test harness for building SemiLayer database bridges",
+  "keywords": [
+    "semilayer",
+    "bridge",
+    "sdk",
+    "adapter"
+  ],
+  "license": "MIT",
+  "author": "SemiLayer",
+  "homepage": "https://github.com/semilayer/bridge-sdk/tree/main/lib/bridge-sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/semilayer/bridge-sdk.git",
+    "directory": "lib/bridge-sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/semilayer/bridge-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@semilayer/core": "^0.1.0"
+  },
+  "peerDependencies": {
+    "vitest": ">=2.0.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
