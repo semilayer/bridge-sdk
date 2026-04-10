@@ -11,42 +11,6 @@ import type {
 import { introspect, listTables } from './introspect.js'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
-const COLUMN_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/
-
-type OrderByClause = { field: string; dir?: 'asc' | 'desc' }
-
-/**
- * Normalize the many shapes `orderBy` can arrive in into a flat
- * `{ field, dir }[]`. Silently drops entries that have no field so a
- * malformed client payload never crashes the bridge with `undefined.replace`
- * — callers still get a clean `Error` from the identifier regex if a field
- * name is bogus.
- */
-function normalizeOrderBy(input: unknown): OrderByClause[] {
-  if (input == null) return []
-  const toClause = (c: unknown): OrderByClause | null => {
-    if (c == null || typeof c !== 'object') return null
-    const obj = c as Record<string, unknown>
-    if (typeof obj.field === 'string') {
-      return { field: obj.field, dir: obj.dir === 'desc' ? 'desc' : 'asc' }
-    }
-    return null
-  }
-  if (Array.isArray(input)) {
-    return input.map(toClause).filter((c): c is OrderByClause => c !== null)
-  }
-  if (typeof input === 'object') {
-    const obj = input as Record<string, unknown>
-    // Canonical single-clause form first.
-    const canonical = toClause(obj)
-    if (canonical) return [canonical]
-    // Record shorthand: { col: 'asc', col2: 'desc' }
-    return Object.entries(obj)
-      .filter(([, v]) => v === 'asc' || v === 'desc')
-      .map(([field, v]) => ({ field, dir: v as 'asc' | 'desc' }))
-  }
-  return []
-}
 
 export interface PostgresBridgeConfig {
   url: string
@@ -228,26 +192,15 @@ export class PostgresBridge implements Bridge {
       conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
 
     // ORDER BY
-    //
-    // Accepts three shapes for ergonomics:
-    //   canonical:  { field: 'cuisine', dir: 'asc' }
-    //   canonical[]: [{ field: 'cuisine', dir: 'asc' }, ...]
-    //   record:     { cuisine: 'asc', title: 'desc' }  ← drizzle-ish shorthand
-    // Everything is normalized to { field, dir } before emitting SQL, and
-    // field names are validated against a strict identifier regex to prevent
-    // SQL injection via column names.
     let orderByClause = ''
     if (options.orderBy) {
-      const normalized = normalizeOrderBy(options.orderBy)
-      if (normalized.length > 0) {
-        const parts = normalized.map((c) => {
-          if (!COLUMN_NAME_RE.test(c.field)) {
-            throw new Error(`Invalid orderBy field: "${c.field}"`)
-          }
-          return `${quote(c.field)} ${c.dir === 'desc' ? 'DESC' : 'ASC'}`
-        })
-        orderByClause = `ORDER BY ${parts.join(', ')}`
-      }
+      const clauses = Array.isArray(options.orderBy)
+        ? options.orderBy
+        : [options.orderBy]
+      const parts = clauses.map(
+        (c) => `${quote(c.field)} ${c.dir === 'desc' ? 'DESC' : 'ASC'}`,
+      )
+      orderByClause = `ORDER BY ${parts.join(', ')}`
     }
 
     // LIMIT / OFFSET
