@@ -1,6 +1,14 @@
-# SemiLayer Bridges
+<p align="right">
+  <img src="assets/logo.png" alt="SemiLayer" width="120" />
+  <br />
+  <strong>SemiLayer / bridges</strong>
+</p>
 
-The home of every official SemiLayer database bridge — the SDK that defines the bridge interface, the registry that resolves bridge names at runtime, and every first-party adapter — all in one monorepo.
+<p align="right">
+The home of every official <a href="https://semilayer.com">SemiLayer</a> database bridge — the SDK that defines the bridge interface, the registry that resolves bridge names at runtime, and every first-party adapter — all in one monorepo.
+</p>
+
+---
 
 ## Layout
 
