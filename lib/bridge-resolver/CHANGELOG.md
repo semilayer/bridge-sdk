@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.3](https://github.com/semilayer/bridge-sdk/compare/bridge-resolver-v1.1.2...bridge-resolver-v1.1.3) (2026-04-10)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @semilayer/bridge-postgres bumped to 1.1.3
+
 ## [1.1.2](https://github.com/semilayer/bridge-sdk/compare/bridge-resolver-v1.1.1...bridge-resolver-v1.1.2) (2026-04-10)
 
 
