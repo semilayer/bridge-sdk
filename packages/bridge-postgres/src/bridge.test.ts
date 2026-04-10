@@ -232,6 +232,48 @@ describe('PostgresBridge', () => {
       expect(dataCall[0]).toContain('ORDER BY "name" ASC, "created_at" DESC')
     })
 
+    it('accepts single canonical orderBy without array', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      await bridge.query('items', {
+        orderBy: { field: 'id', dir: 'desc' },
+      })
+
+      const dataCall = mockPoolQuery.mock.calls[0]!
+      expect(dataCall[0]).toContain('ORDER BY "id" DESC')
+    })
+
+    it('accepts record-shorthand orderBy { col: dir }', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      await bridge.query('items', {
+        orderBy: { cuisine: 'asc', title: 'desc' } as unknown as never,
+      })
+
+      const dataCall = mockPoolQuery.mock.calls[0]!
+      expect(dataCall[0]).toContain('ORDER BY "cuisine" ASC, "title" DESC')
+    })
+
+    it('skips malformed orderBy entries instead of crashing', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      await bridge.query('items', {
+        orderBy: [{} as never, { field: 'name', dir: 'asc' }],
+      })
+
+      const dataCall = mockPoolQuery.mock.calls[0]!
+      expect(dataCall[0]).toContain('ORDER BY "name" ASC')
+    })
+
     it('builds LIMIT and OFFSET', async () => {
       const bridge = await createConnectedBridge()
 
