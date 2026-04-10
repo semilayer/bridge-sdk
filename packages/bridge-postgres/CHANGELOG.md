@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/semilayer/bridge-sdk/compare/bridge-postgres-v1.1.2...bridge-postgres-v1.1.3) (2026-04-10)
+
+
+### Bug Fixes
+
+* **bridge-postgres:** handle record-shorthand and malformed orderBy without crashing ([4477bb8](https://github.com/semilayer/bridge-sdk/commit/4477bb8163614c6a4806619a2a75c3fba40e266c))
+
 ## [1.1.2](https://github.com/semilayer/bridge-sdk/compare/bridge-postgres-v1.1.1...bridge-postgres-v1.1.2) (2026-04-10)
 
 
