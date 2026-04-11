@@ -198,7 +198,7 @@ export class PostgresBridge implements Bridge {
       const raw = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
       const parts: string[] = []
       for (const clause of raw) {
-        const obj = clause as Record<string, unknown>
+        const obj = clause as unknown as Record<string, unknown>
         if (typeof obj.field === 'string') {
           // Canonical: { field: 'id', dir: 'asc' }
           parts.push(`${quote(obj.field)} ${obj.dir === 'desc' ? 'DESC' : 'ASC'}`)
