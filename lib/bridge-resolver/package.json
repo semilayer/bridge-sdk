@@ -44,7 +44,7 @@
   },
   "dependencies": {
     "@semilayer/bridge-postgres": "workspace:*",
-    "@semilayer/core": "^0.1.0"
+    "@semilayer/core": "^0.1.4"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

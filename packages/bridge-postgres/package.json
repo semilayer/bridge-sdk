@@ -43,7 +43,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@semilayer/core": "^0.1.0",
+    "@semilayer/core": "^0.1.4",
     "pg": "^8.13.0"
   },
   "devDependencies": {
