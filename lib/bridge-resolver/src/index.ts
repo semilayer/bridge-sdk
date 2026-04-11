@@ -1,4 +1,4 @@
-import type { BridgeConstructor } from '@semilayer/core'
+import type { BridgeConstructor, BridgeManifest } from '@semilayer/core'
 import { PostgresBridge } from '@semilayer/bridge-postgres'
 
 const BUILT_IN_BRIDGES: Record<string, BridgeConstructor> = {
@@ -56,4 +56,26 @@ export function resolveBridge(name: string): BridgeConstructor {
  */
 export function listBridges(): string[] {
   return [...new Set([...Object.keys(BUILT_IN_BRIDGES), ...Object.keys(customBridges)])]
+}
+
+/**
+ * Return the manifest for a specific bridge, or undefined if the bridge
+ * has not declared one yet.
+ */
+export function getManifest(name: string): BridgeManifest | undefined {
+  const Ctor = customBridges[name] ?? BUILT_IN_BRIDGES[name]
+  return Ctor?.manifest
+}
+
+/**
+ * Return manifests for every registered bridge that has declared one.
+ * Bridges without a static `manifest` property are silently skipped —
+ * they remain usable via `resolveBridge`, but the console/CLI cannot
+ * render a dynamic config form for them.
+ */
+export function listManifests(): BridgeManifest[] {
+  const all = { ...BUILT_IN_BRIDGES, ...customBridges }
+  return Object.values(all)
+    .map((Ctor) => Ctor.manifest)
+    .filter((m): m is BridgeManifest => m !== undefined)
 }
