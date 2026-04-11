@@ -192,15 +192,26 @@ export class PostgresBridge implements Bridge {
       conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
 
     // ORDER BY
+    // Accepts canonical { field, dir? } or record shorthand { col: dir, col2: dir }.
     let orderByClause = ''
     if (options.orderBy) {
-      const clauses = Array.isArray(options.orderBy)
-        ? options.orderBy
-        : [options.orderBy]
-      const parts = clauses.map(
-        (c) => `${quote(c.field)} ${c.dir === 'desc' ? 'DESC' : 'ASC'}`,
-      )
-      orderByClause = `ORDER BY ${parts.join(', ')}`
+      const raw = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
+      const parts: string[] = []
+      for (const clause of raw) {
+        const obj = clause as Record<string, unknown>
+        if (typeof obj.field === 'string') {
+          // Canonical: { field: 'id', dir: 'asc' }
+          parts.push(`${quote(obj.field)} ${obj.dir === 'desc' ? 'DESC' : 'ASC'}`)
+        } else {
+          // Shorthand: { id: 'asc', name: 'desc' }
+          for (const [col, dir] of Object.entries(obj)) {
+            if (dir === 'asc' || dir === 'desc') {
+              parts.push(`${quote(col)} ${dir === 'desc' ? 'DESC' : 'ASC'}`)
+            }
+          }
+        }
+      }
+      if (parts.length > 0) orderByClause = `ORDER BY ${parts.join(', ')}`
     }
 
     // LIMIT / OFFSET
