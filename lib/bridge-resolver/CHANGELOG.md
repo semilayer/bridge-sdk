@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.1.0](https://github.com/semilayer/bridge-sdk/compare/bridge-resolver-v1.0.0...bridge-resolver-v1.1.0) (2026-04-12)
+
+
+### Features
+
+* initial commit ([19bef8b](https://github.com/semilayer/bridge-sdk/commit/19bef8b749ec9b04acd77fe348fca49fbea2fafe))
+* releasing bridge sdk adapters ([e90922f](https://github.com/semilayer/bridge-sdk/commit/e90922fdddbde9be7e443cecb9ed90c62412c85e))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @semilayer/bridge-postgres bumped to 1.1.0
+    * @semilayer/bridge-mysql bumped to 1.1.0
+    * @semilayer/bridge-sqlite bumped to 1.1.0
+    * @semilayer/bridge-mssql bumped to 1.1.0
+    * @semilayer/bridge-cockroachdb bumped to 1.1.0
+    * @semilayer/bridge-neon bumped to 1.1.0
+    * @semilayer/bridge-turso bumped to 1.1.0
+    * @semilayer/bridge-planetscale bumped to 1.0.1
+    * @semilayer/bridge-d1 bumped to 1.0.1
+    * @semilayer/bridge-supabase bumped to 1.1.0
+    * @semilayer/bridge-mongodb bumped to 1.0.1
+    * @semilayer/bridge-firestore bumped to 1.0.1
+    * @semilayer/bridge-redis bumped to 1.0.1
+    * @semilayer/bridge-upstash bumped to 1.1.0
+    * @semilayer/bridge-dynamodb bumped to 1.0.1
+    * @semilayer/bridge-elasticsearch bumped to 1.0.1
+    * @semilayer/bridge-cassandra bumped to 1.0.1
+    * @semilayer/bridge-clickhouse bumped to 1.0.1
+    * @semilayer/bridge-bigquery bumped to 1.0.1
+    * @semilayer/bridge-duckdb bumped to 1.0.1
+    * @semilayer/bridge-snowflake bumped to 1.0.1
+    * @semilayer/bridge-mariadb bumped to 1.0.1
+    * @semilayer/bridge-oracle bumped to 1.0.1
+
 ## [1.1.3](https://github.com/semilayer/bridge-sdk/compare/bridge-resolver-v1.1.2...bridge-resolver-v1.1.3) (2026-04-10)
 
 
