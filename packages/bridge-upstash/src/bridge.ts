@@ -22,10 +22,14 @@ function matchesWhere(row: BridgeRow, where: Record<string, unknown>): boolean {
       const ops = value as Record<string, unknown>
       for (const [op, v] of Object.entries(ops)) {
         if (op === '$eq' && rowVal !== v) return false
-        if (op === '$gt' && !(rowVal! > (v as never))) return false
-        if (op === '$gte' && !(rowVal! >= (v as never))) return false
-        if (op === '$lt' && !(rowVal! < (v as never))) return false
-        if (op === '$lte' && !(rowVal! <= (v as never))) return false
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (op === '$gt' && !((rowVal as any) > (v as any))) return false
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (op === '$gte' && !((rowVal as any) >= (v as any))) return false
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (op === '$lt' && !((rowVal as any) < (v as any))) return false
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (op === '$lte' && !((rowVal as any) <= (v as any))) return false
         if (op === '$in' && !(v as unknown[]).includes(rowVal)) return false
         if (!['$eq', '$gt', '$gte', '$lt', '$lte', '$in'].includes(op)) {
           throw new Error(`Unknown operator "${op}"`)

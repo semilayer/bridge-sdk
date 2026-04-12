@@ -13,6 +13,11 @@ import type {
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
 
+// mysql2 execute() expects a concrete ExecuteValues type, not unknown[].
+// We use this alias to cast at call sites where we know the values are safe.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SqlParams = any[]
+
 export interface MysqlBridgeConfig {
   url?: string
   host?: string
@@ -136,7 +141,7 @@ export class MysqlBridge implements Bridge {
 
     const sql = `SELECT ${selectClause} FROM ${backtickQuote(table)} ${whereClause} ORDER BY ${backtickQuote(pk)} ASC LIMIT ?`
 
-    const [allRowsRaw] = await pool.execute(sql, params)
+    const [allRowsRaw] = await pool.execute(sql, params as SqlParams)
     const allRows = allRowsRaw as BridgeRow[]
 
     const hasMore = allRows.length > limit
@@ -289,8 +294,8 @@ export class MysqlBridge implements Bridge {
     const countParams = params.slice(0, whereParamCount)
 
     const [[dataRows], [countRows]] = await Promise.all([
-      pool.execute(querySql, params),
-      pool.execute(countSql, countParams),
+      pool.execute(querySql, params as SqlParams),
+      pool.execute(countSql, countParams as SqlParams),
     ])
 
     return {

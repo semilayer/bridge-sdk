@@ -19,7 +19,8 @@ export interface SupabaseBridgeConfig {
 }
 
 export class SupabaseBridge implements Bridge {
-  private client: SupabaseClient | null = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private client: SupabaseClient<any, any, any> | null = null
   private config: SupabaseBridgeConfig
 
   static manifest: BridgeManifest = {
@@ -51,7 +52,8 @@ export class SupabaseBridge implements Bridge {
     }
   }
 
-  private assertClient(): SupabaseClient {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private assertClient(): SupabaseClient<any, any, any> {
     if (!this.client) throw new Error('SupabaseBridge is not connected')
     return this.client
   }

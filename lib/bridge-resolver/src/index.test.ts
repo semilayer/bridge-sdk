@@ -25,7 +25,7 @@ describe('resolveBridge', () => {
   })
 
   it('throws for unknown bridge', () => {
-    expect(() => resolveBridge('@semilayer/bridge-mysql')).toThrow('Unknown bridge')
+    expect(() => resolveBridge('@semilayer/bridge-nonexistent')).toThrow('Unknown bridge')
   })
 })
 

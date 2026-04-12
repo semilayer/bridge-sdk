@@ -242,7 +242,7 @@ export class TursoBridge implements Bridge {
     const client = this.assertClient()
     const result = await client.execute({ sql, args: args as InValue[] })
     return result.rows.map(row =>
-      Object.fromEntries(result.columns.map((c, i) => [c, (row as unknown[])[i]])),
+      Object.fromEntries(result.columns.map((c, i) => [c, (row as unknown as unknown[])[i]])),
     )
   }
 
