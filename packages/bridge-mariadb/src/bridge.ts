@@ -1,4 +1,4 @@
-import mysql from 'mysql2/promise'
+import * as mariadb from 'mariadb'
 import type {
   Bridge,
   BridgeManifest,
@@ -13,34 +13,35 @@ import type {
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
 
-export interface MysqlBridgeConfig {
+export interface MariadbBridgeConfig {
   url?: string
   host?: string
   port?: number
   user?: string
   password?: string
   database?: string
+  ssl?: boolean
   pool?: { min?: number; max?: number }
 }
 
-export class MysqlBridge implements Bridge {
-  private pool: mysql.Pool | null = null
-  private config: MysqlBridgeConfig
+export class MariadbBridge implements Bridge {
+  private pool: mariadb.Pool | null = null
+  private config: MariadbBridgeConfig
   private pkCache = new Map<string, string>()
 
   static manifest: BridgeManifest = {
-    packageName: '@semilayer/bridge-mysql',
-    displayName: 'MySQL',
-    icon: 'mysql',
+    packageName: '@semilayer/bridge-mariadb',
+    displayName: 'MariaDB',
+    icon: 'mariadb',
     supportsUrl: true,
-    urlPlaceholder: 'mysql://user:pass@host:3306/dbname',
+    urlPlaceholder: 'mariadb://user:pass@host:3306/dbname',
     fields: [
       { key: 'host', label: 'Host', type: 'string', required: true, placeholder: 'localhost' },
       { key: 'port', label: 'Port', type: 'number', required: false, default: 3306 },
       { key: 'database', label: 'Database', type: 'string', required: true },
-      { key: 'user', label: 'Username', type: 'string', required: true, placeholder: 'Username' },
+      { key: 'user', label: 'Username', type: 'string', required: true },
       { key: 'password', label: 'Password', type: 'password', required: true },
-      { key: 'ssl', label: 'SSL', type: 'boolean', required: false, default: false, group: 'advanced' },
+      { key: 'ssl', label: 'Use SSL', type: 'boolean', required: false, default: false, group: 'advanced' },
     ],
   }
 
@@ -51,10 +52,11 @@ export class MysqlBridge implements Bridge {
     const user = (config['user'] ?? config['username']) as string | undefined
     const password = (config['password'] ?? config['pass']) as string | undefined
     const database = (config['database'] ?? config['db']) as string | undefined
+    const ssl = config['ssl'] as boolean | undefined
 
     if (!url && !host && !database) {
       throw new Error(
-        'MysqlBridge requires either a "url" or ("host" + "database") config',
+        'MariadbBridge requires either a "url" or ("host" + "database") config',
       )
     }
 
@@ -65,7 +67,8 @@ export class MysqlBridge implements Bridge {
       user,
       password,
       database,
-      pool: config['pool'] as MysqlBridgeConfig['pool'],
+      ssl,
+      pool: config['pool'] as MariadbBridgeConfig['pool'],
     }
   }
 
@@ -73,19 +76,16 @@ export class MysqlBridge implements Bridge {
     const max = this.config.pool?.max ?? 3
 
     if (this.config.url) {
-      this.pool = mysql.createPool({
-        uri: this.config.url,
-        waitForConnections: true,
-        connectionLimit: max,
-      })
+      // mariadb.createPool accepts a connection string directly
+      this.pool = mariadb.createPool(this.config.url)
     } else {
-      this.pool = mysql.createPool({
+      this.pool = mariadb.createPool({
         host: this.config.host,
         port: this.config.port,
         user: this.config.user,
         password: this.config.password,
         database: this.config.database,
-        waitForConnections: true,
+        ssl: this.config.ssl ? {} : undefined,
         connectionLimit: max,
       })
     }
@@ -136,7 +136,7 @@ export class MysqlBridge implements Bridge {
 
     const sql = `SELECT ${selectClause} FROM ${backtickQuote(table)} ${whereClause} ORDER BY ${backtickQuote(pk)} ASC LIMIT ?`
 
-    const [allRowsRaw] = await pool.execute(sql, params)
+    const allRowsRaw = await pool.query(sql, params)
     const allRows = allRowsRaw as BridgeRow[]
 
     const hasMore = allRows.length > limit
@@ -145,10 +145,10 @@ export class MysqlBridge implements Bridge {
       ? String(rows[rows.length - 1]![pk])
       : undefined
 
-    const [countRaw] = await pool.execute(
+    const countRaw = await pool.query(
       `SELECT COUNT(*) as total FROM ${backtickQuote(table)}`,
     )
-    const total = (countRaw as Array<{ total: number }>)[0]!.total
+    const total = Number((countRaw as Array<{ total: bigint | number }>)[0]!.total)
 
     return { rows, nextCursor, total }
   }
@@ -158,10 +158,10 @@ export class MysqlBridge implements Bridge {
     const table = target
     assertTableName(table)
 
-    const [rows] = await pool.execute(
+    const rows = await pool.query(
       `SELECT COUNT(*) as total FROM ${backtickQuote(table)}`,
     )
-    return (rows as Array<{ total: number }>)[0]!.total
+    return Number((rows as Array<{ total: bigint | number }>)[0]!.total)
   }
 
   async disconnect(): Promise<void> {
@@ -215,7 +215,6 @@ export class MysqlBridge implements Bridge {
                 params.push(opVal)
                 break
               case '$in':
-                // mysql2 handles array expansion for IN clauses
                 conditions.push(`${backtickQuote(key)} IN (?)`)
                 params.push(opVal)
                 break
@@ -288,14 +287,14 @@ export class MysqlBridge implements Bridge {
     const countSql = `SELECT COUNT(*) as total FROM ${backtickQuote(table)} ${whereClause}`
     const countParams = params.slice(0, whereParamCount)
 
-    const [[dataRows], [countRows]] = await Promise.all([
-      pool.execute(querySql, params),
-      pool.execute(countSql, countParams),
+    const [dataRows, countRows] = await Promise.all([
+      pool.query(querySql, params),
+      pool.query(countSql, countParams),
     ])
 
     return {
       rows: dataRows as BridgeRow[],
-      total: (countRows as Array<{ total: number }>)[0]!.total,
+      total: Number((countRows as Array<{ total: bigint | number }>)[0]!.total),
     }
   }
 
@@ -305,7 +304,7 @@ export class MysqlBridge implements Bridge {
 
   async listTargets(): Promise<string[]> {
     const pool = this.assertPool()
-    const [rows] = await pool.execute(
+    const rows = await pool.query(
       `SELECT TABLE_NAME as table_name FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'`,
     )
     return (rows as Array<{ table_name: string }>).map((r) => r.table_name)
@@ -315,44 +314,31 @@ export class MysqlBridge implements Bridge {
     const pool = this.assertPool()
     assertTableName(target)
 
-    const [colRows] = await pool.execute(
-      `SELECT
-         c.COLUMN_NAME as column_name,
-         c.DATA_TYPE as data_type,
-         c.IS_NULLABLE as is_nullable,
-         CASE WHEN kcu.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS is_pk
-       FROM information_schema.COLUMNS c
-       LEFT JOIN information_schema.TABLE_CONSTRAINTS tc
-         ON tc.TABLE_NAME = c.TABLE_NAME
-         AND tc.TABLE_SCHEMA = c.TABLE_SCHEMA
-         AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
-       LEFT JOIN information_schema.KEY_COLUMN_USAGE kcu
-         ON kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
-         AND kcu.TABLE_SCHEMA = tc.TABLE_SCHEMA
-         AND kcu.COLUMN_NAME = c.COLUMN_NAME
-       WHERE c.TABLE_NAME = ? AND c.TABLE_SCHEMA = DATABASE()
-       ORDER BY c.ORDINAL_POSITION`,
-      [target],
+    // SHOW COLUMNS returns: Field, Type, Null, Key, Default, Extra
+    const colRows = await pool.query(
+      `SHOW COLUMNS FROM ${backtickQuote(target)}`,
     )
 
     const columns: TargetColumnInfo[] = (
       colRows as Array<{
-        column_name: string
-        data_type: string
-        is_nullable: string
-        is_pk: number
+        Field: string
+        Type: string
+        Null: string
+        Key: string
       }>
     ).map((row) => ({
-      name: row.column_name,
-      type: row.data_type,
-      nullable: row.is_nullable === 'YES',
-      primaryKey: row.is_pk === 1,
+      name: row.Field,
+      type: row.Type,
+      nullable: row.Null === 'YES',
+      primaryKey: row.Key === 'PRI',
     }))
 
-    const [countRows] = await pool.execute(
+    const countRows = await pool.query(
       `SELECT COUNT(*) as total FROM ${backtickQuote(target)}`,
     )
-    const rowCount = (countRows as Array<{ total: number }>)[0]!.total
+    const rowCount = Number(
+      (countRows as Array<{ total: bigint | number }>)[0]!.total,
+    )
 
     return { name: target, columns, rowCount }
   }
@@ -361,8 +347,8 @@ export class MysqlBridge implements Bridge {
   // Internal helpers
   // -------------------------------------------------------------------
 
-  private assertPool(): mysql.Pool {
-    if (!this.pool) throw new Error('MysqlBridge is not connected')
+  private assertPool(): mariadb.Pool {
+    if (!this.pool) throw new Error('MariadbBridge is not connected')
     return this.pool
   }
 
@@ -371,7 +357,7 @@ export class MysqlBridge implements Bridge {
     if (cached) return cached
 
     const pool = this.assertPool()
-    const [rows] = await pool.execute(
+    const rows = await pool.query(
       `SELECT column_name FROM information_schema.KEY_COLUMN_USAGE
        WHERE TABLE_NAME = ? AND TABLE_SCHEMA = DATABASE() AND CONSTRAINT_NAME = 'PRIMARY'
        ORDER BY ORDINAL_POSITION LIMIT 1`,
@@ -388,7 +374,7 @@ export class MysqlBridge implements Bridge {
 
   private async hasColumn(table: string, column: string): Promise<boolean> {
     const pool = this.assertPool()
-    const [rows] = await pool.execute(
+    const rows = await pool.query(
       `SELECT 1 FROM information_schema.COLUMNS
        WHERE TABLE_NAME = ? AND COLUMN_NAME = ? AND TABLE_SCHEMA = DATABASE() LIMIT 1`,
       [table, column],

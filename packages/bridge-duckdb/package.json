@@ -1,6 +1,6 @@
 {
   "name": "@semilayer/bridge-duckdb",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "SemiLayer bridge for duckdb",
   "keywords": [
     "semilayer",
@@ -42,7 +42,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@semilayer/core": "^0.1.4"
+    "@semilayer/core": "^0.1.4",
+    "duckdb": "^1.1.0"
   },
   "devDependencies": {
     "@semilayer/bridge-sdk": "workspace:*",

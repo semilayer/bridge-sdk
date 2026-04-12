@@ -1,6 +1,7 @@
 import { Redis } from '@upstash/redis'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -52,6 +53,30 @@ function sortRows(rows: BridgeRow[], orderBy: OrderByClause | OrderByClause[]): 
 }
 
 export class UpstashBridge implements Bridge {
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-upstash',
+    displayName: 'Upstash Redis',
+    icon: 'upstash',
+    supportsUrl: false,
+    fields: [
+      {
+        key: 'url',
+        label: 'URL',
+        type: 'string',
+        required: true,
+        placeholder: 'https://us1-xxx.upstash.io',
+        hint: 'REST URL from Upstash console',
+      },
+      {
+        key: 'token',
+        label: 'Token',
+        type: 'password',
+        required: true,
+        hint: 'REST token from Upstash console',
+      },
+    ],
+  }
+
   private redis: Redis | null = null
   private config: UpstashBridgeConfig
 

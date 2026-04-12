@@ -1,6 +1,7 @@
 import cassandra from 'cassandra-driver'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -17,15 +18,67 @@ export interface CassandraBridgeConfig {
 }
 
 export class CassandraBridge implements Bridge {
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-cassandra',
+    displayName: 'Cassandra',
+    icon: 'cassandra',
+    supportsUrl: false,
+    fields: [
+      {
+        key: 'contactPoints',
+        label: 'Contact Points',
+        type: 'string',
+        required: true,
+        placeholder: 'host1.example.com,host2.example.com',
+        hint: 'Comma-separated list of contact point hostnames or IPs',
+      },
+      {
+        key: 'localDataCenter',
+        label: 'Local Data Center',
+        type: 'string',
+        required: true,
+        placeholder: 'datacenter1',
+      },
+      {
+        key: 'keyspace',
+        label: 'Keyspace',
+        type: 'string',
+        required: true,
+      },
+      {
+        key: 'username',
+        label: 'Username',
+        type: 'string',
+        required: false,
+        group: 'advanced',
+      },
+      {
+        key: 'password',
+        label: 'Password',
+        type: 'password',
+        required: false,
+        group: 'advanced',
+      },
+    ],
+  }
+
   private client: cassandra.Client | null = null
   private pkCache = new Map<string, string>()
   private config: CassandraBridgeConfig
 
   constructor(config: Record<string, unknown>) {
-    const contactPoints = config['contactPoints'] as string[] | undefined
+    const rawContactPoints = config['contactPoints']
+    const contactPoints: string[] = Array.isArray(rawContactPoints)
+      ? (rawContactPoints as string[])
+      : typeof rawContactPoints === 'string'
+        ? (rawContactPoints as string)
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : []
     const localDataCenter = config['localDataCenter'] as string | undefined
     const keyspace = config['keyspace'] as string | undefined
-    if (!contactPoints?.length)
+    if (!contactPoints.length)
       throw new Error('CassandraBridge requires "contactPoints" config array')
     if (!localDataCenter)
       throw new Error('CassandraBridge requires "localDataCenter" config string')

@@ -1,6 +1,7 @@
 import { createClient, type Client, type InValue } from '@libsql/client'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -19,6 +20,17 @@ export class TursoBridge implements Bridge {
   private client: Client | null = null
   private pkCache = new Map<string, string>()
   private config: TursoBridgeConfig
+
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-turso',
+    displayName: 'Turso',
+    icon: 'turso',
+    supportsUrl: true,
+    urlPlaceholder: 'libsql://db-name.turso.io',
+    fields: [
+      { key: 'authToken', label: 'Auth Token', type: 'password', required: false, hint: 'Authentication token from Turso dashboard' },
+    ],
+  }
 
   constructor(config: Record<string, unknown>) {
     const url = config['url'] as string | undefined

@@ -1,5 +1,6 @@
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -19,6 +20,18 @@ export class D1Bridge implements Bridge {
   private config: D1BridgeConfig
   private connected = false
   private pkCache = new Map<string, string>()
+
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-d1',
+    displayName: 'Cloudflare D1',
+    icon: 'd1',
+    supportsUrl: false,
+    fields: [
+      { key: 'accountId', label: 'Account ID', type: 'string', required: true, hint: 'Cloudflare account ID' },
+      { key: 'databaseId', label: 'Database ID', type: 'string', required: true, hint: 'D1 database ID from Cloudflare dashboard' },
+      { key: 'apiToken', label: 'API Token', type: 'password', required: true, hint: 'Cloudflare API token with D1 read permissions' },
+    ],
+  }
 
   constructor(config: Record<string, unknown>) {
     const accountId = config['accountId'] as string | undefined

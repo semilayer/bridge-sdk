@@ -7,5 +7,5 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   target: 'node22',
-  external: ['@semilayer/core', '@semilayer/bridge-sdk', '@google-cloud/bigquery'],
+  external: ['@semilayer/core', '@semilayer/bridge-sdk', 'oracledb'],
 })

@@ -1,6 +1,7 @@
 import { connect as psConnect, type Connection } from '@planetscale/database'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -21,6 +22,19 @@ export class PlanetscaleBridge implements Bridge {
   private conn: Connection | null = null
   private pkCache = new Map<string, string>()
   private config: PlanetscaleBridgeConfig
+
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-planetscale',
+    displayName: 'PlanetScale',
+    icon: 'planetscale',
+    supportsUrl: true,
+    urlPlaceholder: 'mysql://user:pass@host.psdb.cloud/dbname',
+    fields: [
+      { key: 'host', label: 'Host', type: 'string', required: true, placeholder: 'host.psdb.cloud' },
+      { key: 'username', label: 'Username', type: 'string', required: true, placeholder: 'Username' },
+      { key: 'password', label: 'Password', type: 'password', required: true },
+    ],
+  }
 
   constructor(config: Record<string, unknown>) {
     const url = config['url'] as string | undefined

@@ -1,6 +1,7 @@
 import { Firestore, FieldPath, type Query, type WhereFilterOp } from '@google-cloud/firestore'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -17,6 +18,55 @@ export interface FirestoreBridgeConfig {
 }
 
 export class FirestoreBridge implements Bridge {
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-firestore',
+    displayName: 'Firestore',
+    icon: 'firestore',
+    supportsUrl: false,
+    fields: [
+      {
+        key: 'projectId',
+        label: 'Project ID',
+        type: 'string',
+        required: true,
+        hint: 'Google Cloud project ID',
+      },
+      {
+        key: 'serviceAccountEmail',
+        label: 'Service Account Email',
+        type: 'string',
+        required: false,
+        group: 'advanced',
+        hint: 'Service account email (alternative to key file)',
+      },
+      {
+        key: 'serviceAccountKey',
+        label: 'Service Account Key',
+        type: 'password',
+        required: false,
+        group: 'advanced',
+        hint: 'Service account private key',
+      },
+      {
+        key: 'keyFilename',
+        label: 'Key Filename',
+        type: 'string',
+        required: false,
+        group: 'advanced',
+        hint: 'Path to service account JSON key file',
+      },
+      {
+        key: 'databaseId',
+        label: 'Database ID',
+        type: 'string',
+        required: false,
+        group: 'advanced',
+        default: '(default)',
+        hint: 'Firestore database ID',
+      },
+    ],
+  }
+
   private db: Firestore | null = null
   private config: FirestoreBridgeConfig
 
@@ -25,9 +75,15 @@ export class FirestoreBridge implements Bridge {
     if (!projectId || typeof projectId !== 'string') {
       throw new Error('FirestoreBridge requires a "projectId" config string')
     }
+    const email = config['serviceAccountEmail'] as string | undefined
+    const privKey = config['serviceAccountKey'] as string | undefined
+    const credentialsFromFields =
+      email && privKey ? { client_email: email, private_key: privKey } : undefined
+    const credentials =
+      credentialsFromFields ?? (config['credentials'] as FirestoreBridgeConfig['credentials'])
     this.config = {
       projectId,
-      credentials: config['credentials'] as FirestoreBridgeConfig['credentials'],
+      credentials,
       keyFilename: config['keyFilename'] as string | undefined,
       databaseId: config['databaseId'] as string | undefined,
     }

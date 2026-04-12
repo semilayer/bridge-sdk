@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -21,6 +22,16 @@ export class SqliteBridge implements Bridge {
   private db: Database.Database | null = null
   private config: SqliteBridgeConfig
   private pkCache = new Map<string, string>()
+
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-sqlite',
+    displayName: 'SQLite',
+    icon: 'sqlite',
+    supportsUrl: false,
+    fields: [
+      { key: 'path', label: 'Database Path', type: 'string', required: true, placeholder: '/data/mydb.sqlite3', hint: 'Path to SQLite database file' },
+    ],
+  }
 
   constructor(config: Record<string, unknown>) {
     const path = config['path'] as string | undefined

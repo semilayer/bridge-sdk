@@ -1,6 +1,7 @@
 import { MongoClient, ObjectId, type Document, type Sort } from 'mongodb'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -16,6 +17,23 @@ export interface MongodbBridgeConfig {
 }
 
 export class MongodbBridge implements Bridge {
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-mongodb',
+    displayName: 'MongoDB',
+    icon: 'mongodb',
+    supportsUrl: true,
+    urlPlaceholder: 'mongodb+srv://user:pass@cluster.mongodb.net/dbname',
+    fields: [
+      {
+        key: 'database',
+        label: 'Database',
+        type: 'string',
+        required: false,
+        hint: 'Database name (if not specified in URL)',
+      },
+    ],
+  }
+
   private client: MongoClient | null = null
   private config: MongodbBridgeConfig
   private dbName: string
