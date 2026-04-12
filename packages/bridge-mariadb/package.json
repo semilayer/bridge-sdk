@@ -13,7 +13,15 @@
   "types": "./dist/index.d.ts",
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
   "files": ["dist", "README.md", "LICENSE"],
-  "scripts": { "build": "tsup", "dev": "tsup --watch", "lint": "eslint src/", "typecheck": "tsc --noEmit", "test": "vitest run", "test:watch": "vitest" },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:watch": "vitest"
+  },
   "dependencies": {
     "@semilayer/core": "^0.1.4",
     "mariadb": "^3.3.0"

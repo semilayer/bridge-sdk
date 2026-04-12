@@ -1,0 +1,62 @@
+name: Integration – MariaDB
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/bridge-mariadb/**'
+      - '.github/workflows/integration-mariadb.yml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: MariaDB integration
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MYSQL_ROOT_PASSWORD: testroot
+          MYSQL_DATABASE: testdb
+          MYSQL_USER: testuser
+          MYSQL_PASSWORD: testpass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=30s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build bridge-mariadb and its deps
+        run: pnpm turbo build --filter=@semilayer/bridge-mariadb...
+
+      - name: Run integration tests
+        working-directory: packages/bridge-mariadb
+        env:
+          DATABASE_URL: mariadb://testuser:testpass@127.0.0.1:3306/testdb
+        run: pnpm test:integration
