@@ -7,7 +7,7 @@ import { SqliteBridge } from './bridge.js'
 
 const mockAll = vi.fn()
 const mockGet = vi.fn()
-const mockPrepare = vi.fn(() => ({ all: mockAll, get: mockGet }))
+const mockPrepare = vi.fn((_sql: string) => ({ all: mockAll, get: mockGet }))
 const mockClose = vi.fn()
 
 vi.mock('better-sqlite3', () => ({
