@@ -38,4 +38,10 @@ declare module 'mssql' {
   }
 
   export function connect(config: config): Promise<ConnectionPool>
+
+  // mssql is a CJS module; the whole namespace is the default export.
+  const _default: {
+    connect(config: config): Promise<ConnectionPool>
+  }
+  export default _default
 }

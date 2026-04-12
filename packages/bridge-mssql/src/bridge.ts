@@ -1,4 +1,4 @@
-import { connect as mssqlConnect } from 'mssql'
+import mssqlLib from 'mssql'
 import type { ConnectionPool, IResult, config as MssqlConfig } from 'mssql'
 import type {
   Bridge,
@@ -112,7 +112,7 @@ export class MssqlBridge implements Bridge {
       }
     }
 
-    this.pool = await mssqlConnect(mssqlConfig)
+    this.pool = await mssqlLib.connect(mssqlConfig)
   }
 
   async read(target: string, options?: ReadOptions): Promise<ReadResult> {
