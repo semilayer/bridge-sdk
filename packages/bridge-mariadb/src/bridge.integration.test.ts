@@ -219,20 +219,20 @@ describe.skipIf(!DATABASE_URL)('MariadbBridge integration', () => {
   })
 
   it('query() filters with $lt', async () => {
-    // price < 5 → Doohickey 1 (2.49), 2 (3.49), 3 (4.49) = 3 rows
+    // price < 5 → Widget C (4.99), Doohickey 1 (2.49), 2 (3.49), 3 (4.49) = 4 rows
     const result = await bridge.query(TABLE, {
       where: { price: { $lt: 5 } },
     })
-    expect(result.rows).toHaveLength(3)
+    expect(result.rows).toHaveLength(4)
     expect(result.rows.every((r) => Number(r['price']) < 5)).toBe(true)
   })
 
   it('query() filters with $lte', async () => {
-    // price <= 5.49 → all 4 Doohickeys
+    // price <= 5.49 → Widget C (4.99) + all 4 Doohickeys = 5 rows
     const result = await bridge.query(TABLE, {
       where: { price: { $lte: 5.49 } },
     })
-    expect(result.rows).toHaveLength(4)
+    expect(result.rows).toHaveLength(5)
     expect(result.rows.every((r) => Number(r['price']) <= 5.49)).toBe(true)
   })
 
