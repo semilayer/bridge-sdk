@@ -172,7 +172,7 @@ describe('DynamodbBridge', () => {
       await bridge.read('users')
       await bridge.read('users')
 
-      const allCmds = (mockSend.mock.calls as MockCommand[][]).map(c => c[0])
+      const allCmds = (mockSend.mock.calls as MockCommand[][]).map(c => c[0]!)
       const describeCalls = allCmds.filter(c => c.type === 'DescribeTable')
       // 1 getPrimaryKey + 2 totals = 3
       expect(describeCalls).toHaveLength(3)
@@ -206,7 +206,7 @@ describe('DynamodbBridge', () => {
 
       await bridge.read('users', { cursor })
 
-      const allCmds = (mockSend.mock.calls as MockCommand[][]).map(c => c[0])
+      const allCmds = (mockSend.mock.calls as MockCommand[][]).map(c => c[0]!)
       const scanCmd = allCmds.find(c => c.type === 'Scan')!
       expect(scanCmd.input['ExclusiveStartKey']).toEqual({ id: 'r5' })
     })
@@ -221,7 +221,7 @@ describe('DynamodbBridge', () => {
 
       await bridge.read('users', { fields: ['id', 'name'] })
 
-      const allCmds = (mockSend.mock.calls as MockCommand[][]).map(c => c[0])
+      const allCmds = (mockSend.mock.calls as MockCommand[][]).map(c => c[0]!)
       const scanCmd = allCmds.find(c => c.type === 'Scan')!
       expect(scanCmd.input['ProjectionExpression']).toBe('#f0, #f1')
       expect(scanCmd.input['ExpressionAttributeNames']).toEqual({ '#f0': 'id', '#f1': 'name' })
