@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.2](https://github.com/semilayer/bridge-sdk/compare/bridge-resolver-v1.2.1...bridge-resolver-v1.2.2) (2026-04-12)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @semilayer/bridge-duckdb bumped to 1.0.2
+
 ## [1.2.1](https://github.com/semilayer/bridge-sdk/compare/bridge-resolver-v1.2.0...bridge-resolver-v1.2.1) (2026-04-12)
 
 
