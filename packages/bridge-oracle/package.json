@@ -1,19 +1,46 @@
 {
   "name": "@semilayer/bridge-oracle",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SemiLayer Oracle Bridge — first-party adapter for connecting SemiLayer to Oracle Database",
-  "keywords": ["semilayer", "bridge", "oracle", "adapter"],
+  "keywords": [
+    "semilayer",
+    "bridge",
+    "oracle",
+    "adapter"
+  ],
   "license": "MIT",
   "author": "SemiLayer",
   "homepage": "https://github.com/semilayer/bridge-sdk/tree/main/packages/bridge-oracle#readme",
-  "repository": { "type": "git", "url": "git+https://github.com/semilayer/bridge-sdk.git", "directory": "packages/bridge-oracle" },
-  "bugs": { "url": "https://github.com/semilayer/bridge-sdk/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/semilayer/bridge-sdk.git",
+    "directory": "packages/bridge-oracle"
+  },
+  "bugs": {
+    "url": "https://github.com/semilayer/bridge-sdk/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist", "README.md", "LICENSE"],
-  "scripts": { "build": "tsup", "dev": "tsup --watch", "lint": "eslint src/", "typecheck": "tsc --noEmit", "test": "vitest run", "test:watch": "vitest" },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
   "dependencies": {
     "@semilayer/core": "^0.1.4",
     "oracledb": "^6.7.0"
@@ -25,6 +52,11 @@
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
-  "engines": { "node": ">=22.0.0" },
-  "publishConfig": { "access": "public", "provenance": true }
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
 }

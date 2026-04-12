@@ -1,6 +1,6 @@
 {
   "name": "@semilayer/bridge-mssql",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "SemiLayer bridge for Microsoft SQL Server",
   "keywords": [
     "semilayer",

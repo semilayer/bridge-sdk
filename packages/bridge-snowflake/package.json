@@ -1,6 +1,6 @@
 {
   "name": "@semilayer/bridge-snowflake",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SemiLayer bridge for snowflake",
   "keywords": [
     "semilayer",
