@@ -5,19 +5,61 @@
   "bump-minor-pre-major": true,
   "bump-patch-for-minor-pre-major": true,
   "separate-pull-requests": false,
-  "plugins": ["node-workspace"],
+  "plugins": [
+    "node-workspace"
+  ],
   "changelog-sections": [
-    { "type": "feat", "section": "Features" },
-    { "type": "fix", "section": "Bug Fixes" },
-    { "type": "perf", "section": "Performance" },
-    { "type": "revert", "section": "Reverts" },
-    { "type": "docs", "section": "Documentation", "hidden": true },
-    { "type": "style", "section": "Styles", "hidden": true },
-    { "type": "chore", "section": "Chores", "hidden": true },
-    { "type": "refactor", "section": "Refactors", "hidden": true },
-    { "type": "test", "section": "Tests", "hidden": true },
-    { "type": "build", "section": "Build System", "hidden": true },
-    { "type": "ci", "section": "CI/CD", "hidden": true }
+    {
+      "type": "feat",
+      "section": "Features"
+    },
+    {
+      "type": "fix",
+      "section": "Bug Fixes"
+    },
+    {
+      "type": "perf",
+      "section": "Performance"
+    },
+    {
+      "type": "revert",
+      "section": "Reverts"
+    },
+    {
+      "type": "docs",
+      "section": "Documentation",
+      "hidden": true
+    },
+    {
+      "type": "style",
+      "section": "Styles",
+      "hidden": true
+    },
+    {
+      "type": "chore",
+      "section": "Chores",
+      "hidden": true
+    },
+    {
+      "type": "refactor",
+      "section": "Refactors",
+      "hidden": true
+    },
+    {
+      "type": "test",
+      "section": "Tests",
+      "hidden": true
+    },
+    {
+      "type": "build",
+      "section": "Build System",
+      "hidden": true
+    },
+    {
+      "type": "ci",
+      "section": "CI/CD",
+      "hidden": true
+    }
   ],
   "packages": {
     "lib/bridge-sdk": {
@@ -28,6 +70,72 @@
     },
     "packages/bridge-postgres": {
       "package-name": "@semilayer/bridge-postgres"
+    },
+    "packages/bridge-mysql": {
+      "package-name": "@semilayer/bridge-mysql"
+    },
+    "packages/bridge-sqlite": {
+      "package-name": "@semilayer/bridge-sqlite"
+    },
+    "packages/bridge-mssql": {
+      "package-name": "@semilayer/bridge-mssql"
+    },
+    "packages/bridge-cockroachdb": {
+      "package-name": "@semilayer/bridge-cockroachdb"
+    },
+    "packages/bridge-neon": {
+      "package-name": "@semilayer/bridge-neon"
+    },
+    "packages/bridge-turso": {
+      "package-name": "@semilayer/bridge-turso"
+    },
+    "packages/bridge-planetscale": {
+      "package-name": "@semilayer/bridge-planetscale"
+    },
+    "packages/bridge-d1": {
+      "package-name": "@semilayer/bridge-d1"
+    },
+    "packages/bridge-supabase": {
+      "package-name": "@semilayer/bridge-supabase"
+    },
+    "packages/bridge-mongodb": {
+      "package-name": "@semilayer/bridge-mongodb"
+    },
+    "packages/bridge-firestore": {
+      "package-name": "@semilayer/bridge-firestore"
+    },
+    "packages/bridge-redis": {
+      "package-name": "@semilayer/bridge-redis"
+    },
+    "packages/bridge-upstash": {
+      "package-name": "@semilayer/bridge-upstash"
+    },
+    "packages/bridge-dynamodb": {
+      "package-name": "@semilayer/bridge-dynamodb"
+    },
+    "packages/bridge-elasticsearch": {
+      "package-name": "@semilayer/bridge-elasticsearch"
+    },
+    "packages/bridge-cassandra": {
+      "package-name": "@semilayer/bridge-cassandra"
+    },
+    "packages/bridge-clickhouse": {
+      "package-name": "@semilayer/bridge-clickhouse"
+    },
+    "packages/bridge-bigquery": {
+      "package-name": "@semilayer/bridge-bigquery"
+    },
+    "packages/bridge-duckdb": {
+      "package-name": "@semilayer/bridge-duckdb"
+    },
+    "packages/bridge-snowflake": {
+      "package-name": "@semilayer/bridge-snowflake"
+    },
+    "packages/bridge-mariadb": {
+      "package-name": "@semilayer/bridge-mariadb"
+    },
+    "packages/bridge-oracle": {
+      "package-name": "@semilayer/bridge-oracle"
     }
   }
 }

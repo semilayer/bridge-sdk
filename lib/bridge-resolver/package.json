@@ -1,6 +1,6 @@
 {
   "name": "@semilayer/bridge-resolver",
-  "version": "1.1.3",
+  "version": "1.0.0",
   "description": "SemiLayer bridge resolver — built-in registry and dynamic bridge loading for first-party and community database adapters",
   "keywords": [
     "semilayer",
@@ -44,7 +44,29 @@
   },
   "dependencies": {
     "@semilayer/bridge-postgres": "workspace:*",
-    "@semilayer/core": "^0.1.0"
+    "@semilayer/bridge-mysql": "workspace:*",
+    "@semilayer/bridge-sqlite": "workspace:*",
+    "@semilayer/bridge-mssql": "workspace:*",
+    "@semilayer/bridge-cockroachdb": "workspace:*",
+    "@semilayer/bridge-neon": "workspace:*",
+    "@semilayer/bridge-turso": "workspace:*",
+    "@semilayer/bridge-planetscale": "workspace:*",
+    "@semilayer/bridge-d1": "workspace:*",
+    "@semilayer/bridge-supabase": "workspace:*",
+    "@semilayer/bridge-mongodb": "workspace:*",
+    "@semilayer/bridge-firestore": "workspace:*",
+    "@semilayer/bridge-redis": "workspace:*",
+    "@semilayer/bridge-upstash": "workspace:*",
+    "@semilayer/bridge-dynamodb": "workspace:*",
+    "@semilayer/bridge-elasticsearch": "workspace:*",
+    "@semilayer/bridge-cassandra": "workspace:*",
+    "@semilayer/bridge-clickhouse": "workspace:*",
+    "@semilayer/bridge-bigquery": "workspace:*",
+    "@semilayer/bridge-duckdb": "workspace:*",
+    "@semilayer/bridge-snowflake": "workspace:*",
+    "@semilayer/bridge-mariadb": "workspace:*",
+    "@semilayer/bridge-oracle": "workspace:*",
+    "@semilayer/core": "^0.1.4"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

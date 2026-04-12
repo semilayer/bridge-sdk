@@ -60,7 +60,7 @@ describe('PostgresBridge', () => {
   describe('constructor', () => {
     it('throws when url is missing', () => {
       expect(() => new PostgresBridge({})).toThrow(
-        'PostgresBridge requires a "url" config string',
+        'PostgresBridge requires a "url" or ("host" + "database") config',
       )
     })
 
