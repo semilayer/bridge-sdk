@@ -16,7 +16,7 @@ export interface NeonBridgeConfig {
 }
 
 export class NeonBridge implements Bridge {
-  private sql: NeonQueryFunction<true, false> | null = null
+  private sql: NeonQueryFunction<false, true> | null = null
   private pkCache = new Map<string, string>()
   private config: NeonBridgeConfig
 
@@ -38,7 +38,7 @@ export class NeonBridge implements Bridge {
   }
 
   async connect(): Promise<void> {
-    this.sql = neon(this.config.url, { fullResults: true, arrayMode: false }) as NeonQueryFunction<true, false>
+    this.sql = neon(this.config.url, { fullResults: true, arrayMode: false }) as NeonQueryFunction<false, true>
     await this.sql('SELECT 1')
   }
 
@@ -237,7 +237,7 @@ export class NeonBridge implements Bridge {
   // Internal helpers
   // -------------------------------------------------------------------
 
-  private assertSql(): NeonQueryFunction<true, false> {
+  private assertSql(): NeonQueryFunction<false, true> {
     if (!this.sql) throw new Error('NeonBridge is not connected')
     return this.sql
   }

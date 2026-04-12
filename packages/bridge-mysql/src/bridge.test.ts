@@ -48,7 +48,9 @@ describe('MysqlBridge', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     // Default: mock the getConnection connectivity check
+    // connect() calls conn.query('SELECT 1') for the health check
     mockGetConnection.mockResolvedValueOnce({
+      query: vi.fn().mockResolvedValue([[{ 1: 1 }], []]),
       execute: vi.fn().mockResolvedValue([[{ 1: 1 }], []]),
       release: mockRelease,
     })

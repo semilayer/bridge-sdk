@@ -62,7 +62,7 @@ describe('CockroachdbBridge', () => {
   describe('constructor', () => {
     it('throws when url is missing', () => {
       expect(() => new CockroachdbBridge({})).toThrow(
-        'CockroachdbBridge requires a "url" config string',
+        'CockroachdbBridge requires a "url" or ("host" + "database") config',
       )
     })
 

@@ -2,24 +2,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MssqlBridge } from './bridge.js'
 
 // ---------------------------------------------------------------------------
-// Mock mssql — named param style
+// Mock mssql — named exports (connect) to match bridge import style
 // ---------------------------------------------------------------------------
 
-const mockRecordset = vi.fn()
-const mockInput = vi.fn()
-const mockRequest = vi.fn(() => ({
-  input: mockInput.mockReturnThis(),
-  query: mockRecordset,
-}))
-const mockClose = vi.fn()
+// vi.mock is hoisted above variable declarations, so we must use vi.hoisted()
+// to ensure these variables are initialised before the factory runs.
+const { mockRecordset, mockInput, mockRequest, mockClose, mockConnect } =
+  vi.hoisted(() => {
+    const mockRecordset = vi.fn()
+    const mockInput = vi.fn()
+    const mockRequest = vi.fn(() => ({
+      input: mockInput,
+      query: mockRecordset,
+    }))
+    const mockClose = vi.fn()
+    const mockConnect = vi.fn()
+    return { mockRecordset, mockInput, mockRequest, mockClose, mockConnect }
+  })
 
 vi.mock('mssql', () => ({
-  default: {
-    connect: vi.fn().mockResolvedValue({
-      request: mockRequest,
-      close: mockClose,
-    }),
-  },
+  connect: mockConnect,
 }))
 
 // Seed helpers — recordset responses
@@ -36,8 +38,9 @@ async function createConnectedBridge(): Promise<MssqlBridge> {
 describe('MssqlBridge', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // mockInput needs to return this for chaining
+    // Re-wire implementations that were cleared by clearAllMocks
     mockInput.mockReturnThis()
+    mockConnect.mockResolvedValue({ request: mockRequest, close: mockClose })
   })
 
   describe('constructor', () => {
@@ -134,7 +137,7 @@ describe('MssqlBridge', () => {
 
       const queryCalls = mockRecordset.mock.calls.map((c) => c[0] as string)
       const selectCall = queryCalls.find(
-        (s) => s.includes('WHERE') && s.includes('ORDER BY'),
+        (s) => s.includes('[items]') && s.includes('WHERE'),
       )
       expect(selectCall).toContain('[id] > @p1')
     })

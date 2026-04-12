@@ -1,4 +1,5 @@
-import sql from 'mssql'
+import { connect as mssqlConnect } from 'mssql'
+import type { ConnectionPool, IResult, config as MssqlConfig } from 'mssql'
 import type {
   Bridge,
   BridgeManifest,
@@ -26,7 +27,7 @@ export interface MssqlBridgeConfig {
 }
 
 export class MssqlBridge implements Bridge {
-  private pool: sql.ConnectionPool | null = null
+  private pool: ConnectionPool | null = null
   private config: MssqlBridgeConfig
   private pkCache = new Map<string, string>()
 
@@ -74,7 +75,7 @@ export class MssqlBridge implements Bridge {
   }
 
   async connect(): Promise<void> {
-    let mssqlConfig: sql.config
+    let mssqlConfig: MssqlConfig
 
     if (this.config.url) {
       const parsed = new URL(this.config.url)
@@ -111,7 +112,7 @@ export class MssqlBridge implements Bridge {
       }
     }
 
-    this.pool = await sql.connect(mssqlConfig)
+    this.pool = await mssqlConnect(mssqlConfig)
   }
 
   async read(target: string, options?: ReadOptions): Promise<ReadResult> {
@@ -399,7 +400,7 @@ export class MssqlBridge implements Bridge {
   // Internal helpers
   // -------------------------------------------------------------------
 
-  private assertPool(): sql.ConnectionPool {
+  private assertPool(): ConnectionPool {
     if (!this.pool) throw new Error('MssqlBridge is not connected')
     return this.pool
   }
@@ -407,7 +408,7 @@ export class MssqlBridge implements Bridge {
   private async runQuery(
     sqlText: string,
     params: unknown[],
-  ): Promise<sql.IResult<unknown>> {
+  ): Promise<IResult<unknown>> {
     const pool = this.assertPool()
     const req = pool.request()
     for (let i = 0; i < params.length; i++) {

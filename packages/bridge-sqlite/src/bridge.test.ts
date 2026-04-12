@@ -92,7 +92,7 @@ describe('SqliteBridge', () => {
       // Verify the SELECT statement used double-quote identifiers and ORDER BY
       const prepareCalls = mockPrepare.mock.calls.map((c) => c[0] as string)
       const selectCall = prepareCalls.find(
-        (s) => s.includes('FROM') && s.includes('ORDER BY'),
+        (s) => s.includes('"items"') && s.includes('ORDER BY'),
       )
       expect(selectCall).toContain('ORDER BY "id" ASC')
       expect(selectCall).toContain('FROM "items"')
@@ -122,7 +122,7 @@ describe('SqliteBridge', () => {
 
       const prepareCalls = mockPrepare.mock.calls.map((c) => c[0] as string)
       const selectCall = prepareCalls.find(
-        (s) => s.includes('WHERE') && s.includes('ORDER BY'),
+        (s) => s.includes('"items"') && s.includes('WHERE'),
       )
       expect(selectCall).toContain('"id" > ?')
     })
