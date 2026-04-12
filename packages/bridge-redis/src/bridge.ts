@@ -1,6 +1,7 @@
 import Redis from 'ioredis'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -67,6 +68,45 @@ function sortRows(rows: BridgeRow[], orderBy: OrderByClause | OrderByClause[]): 
 }
 
 export class RedisBridge implements Bridge {
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-redis',
+    displayName: 'Redis',
+    icon: 'redis',
+    supportsUrl: true,
+    urlPlaceholder: 'redis://user:pass@host:6379/0',
+    fields: [
+      {
+        key: 'host',
+        label: 'Host',
+        type: 'string',
+        required: true,
+        default: 'localhost',
+      },
+      {
+        key: 'port',
+        label: 'Port',
+        type: 'number',
+        required: false,
+        default: 6379,
+      },
+      {
+        key: 'password',
+        label: 'Password',
+        type: 'password',
+        required: false,
+      },
+      {
+        key: 'db',
+        label: 'DB',
+        type: 'number',
+        required: false,
+        default: 0,
+        group: 'advanced',
+        hint: 'Database index (0-15)',
+      },
+    ],
+  }
+
   private redis: Redis | null = null
   private config: RedisBridgeConfig
 

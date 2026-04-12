@@ -10,6 +10,7 @@ import {
 } from '@aws-sdk/lib-dynamodb'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -26,6 +27,53 @@ export interface DynamodbBridgeConfig {
 }
 
 export class DynamodbBridge implements Bridge {
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-dynamodb',
+    displayName: 'DynamoDB',
+    icon: 'dynamodb',
+    supportsUrl: false,
+    fields: [
+      {
+        key: 'region',
+        label: 'Region',
+        type: 'string',
+        required: true,
+        placeholder: 'us-east-1',
+        hint: 'AWS region where your DynamoDB tables are',
+      },
+      {
+        key: 'accessKeyId',
+        label: 'Access Key ID',
+        type: 'string',
+        required: true,
+        hint: 'AWS access key ID with DynamoDB read permissions',
+      },
+      {
+        key: 'secretAccessKey',
+        label: 'Secret Access Key',
+        type: 'password',
+        required: true,
+        hint: 'AWS secret access key',
+      },
+      {
+        key: 'sessionToken',
+        label: 'Session Token',
+        type: 'password',
+        required: false,
+        group: 'advanced',
+        hint: 'Session token (only for temporary credentials)',
+      },
+      {
+        key: 'endpoint',
+        label: 'Endpoint',
+        type: 'string',
+        required: false,
+        group: 'advanced',
+        hint: 'Custom endpoint URL (for local testing with DynamoDB Local)',
+      },
+    ],
+  }
+
   private rawClient: DynamoDBClient | null = null
   private docClient: DynamoDBDocumentClient | null = null
   private pkCache = new Map<string, string>()
@@ -35,10 +83,14 @@ export class DynamodbBridge implements Bridge {
     const region = config['region'] as string | undefined
     if (!region || typeof region !== 'string')
       throw new Error('DynamodbBridge requires a "region" config string')
+    const accessKeyId = config['accessKeyId'] as string | undefined
+    const secretAccessKey = config['secretAccessKey'] as string | undefined
+    if (accessKeyId && !secretAccessKey)
+      throw new Error('DynamodbBridge requires "secretAccessKey" when "accessKeyId" is provided')
     this.config = {
       region,
-      accessKeyId: config['accessKeyId'] as string | undefined,
-      secretAccessKey: config['secretAccessKey'] as string | undefined,
+      accessKeyId,
+      secretAccessKey,
       sessionToken: config['sessionToken'] as string | undefined,
       endpoint: config['endpoint'] as string | undefined,
     }

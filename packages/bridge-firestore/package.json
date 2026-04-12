@@ -1,6 +1,6 @@
 {
   "name": "@semilayer/bridge-firestore",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "SemiLayer bridge for Firestore",
   "keywords": [
     "semilayer",

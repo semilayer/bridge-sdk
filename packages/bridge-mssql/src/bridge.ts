@@ -1,6 +1,7 @@
 import sql from 'mssql'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -28,6 +29,23 @@ export class MssqlBridge implements Bridge {
   private pool: sql.ConnectionPool | null = null
   private config: MssqlBridgeConfig
   private pkCache = new Map<string, string>()
+
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-mssql',
+    displayName: 'SQL Server',
+    icon: 'mssql',
+    supportsUrl: true,
+    urlPlaceholder: 'mssql://user:pass@server:1433/database',
+    fields: [
+      { key: 'server', label: 'Server', type: 'string', required: true, placeholder: 'localhost' },
+      { key: 'port', label: 'Port', type: 'number', required: false, default: 1433 },
+      { key: 'database', label: 'Database', type: 'string', required: true },
+      { key: 'user', label: 'Username', type: 'string', required: true, placeholder: 'Username' },
+      { key: 'password', label: 'Password', type: 'password', required: true },
+      { key: 'encrypt', label: 'Encrypt', type: 'boolean', required: false, default: true, group: 'advanced' },
+      { key: 'trustServerCertificate', label: 'Trust Server Certificate', type: 'boolean', required: false, default: false, group: 'advanced' },
+    ],
+  }
 
   constructor(config: Record<string, unknown>) {
     const url = config['url'] as string | undefined

@@ -1,6 +1,7 @@
 import pg from 'pg'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -22,10 +23,39 @@ export class CockroachdbBridge implements Bridge {
   private config: CockroachdbBridgeConfig
   private pkCache = new Map<string, string>()
 
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-cockroachdb',
+    displayName: 'CockroachDB',
+    icon: 'cockroachdb',
+    supportsUrl: true,
+    urlPlaceholder: 'cockroachdb://user:pass@host:26257/dbname?sslmode=require',
+    fields: [
+      { key: 'host', label: 'Host', type: 'string', required: true },
+      { key: 'port', label: 'Port', type: 'number', required: false, default: 26257 },
+      { key: 'database', label: 'Database', type: 'string', required: true },
+      { key: 'user', label: 'Username', type: 'string', required: true, placeholder: 'Username' },
+      { key: 'password', label: 'Password', type: 'password', required: true },
+      { key: 'ssl', label: 'SSL', type: 'boolean', required: false, default: true, group: 'advanced' },
+    ],
+  }
+
   constructor(config: Record<string, unknown>) {
-    const rawUrl = (config['url'] ?? config['connectionString']) as string | undefined
+    let rawUrl = (config['url'] ?? config['connectionString']) as string | undefined
     if (!rawUrl || typeof rawUrl !== 'string') {
-      throw new Error('CockroachdbBridge requires a "url" config string')
+      const host = config['host'] as string | undefined
+      const port = (config['port'] as number | undefined) ?? 26257
+      const database = (config['database'] ?? config['db']) as string | undefined
+      const user = (config['user'] ?? config['username']) as string | undefined
+      const password = config['password'] as string | undefined
+      if (host && database) {
+        const creds = user
+          ? `${encodeURIComponent(user)}${password ? ':' + encodeURIComponent(String(password)) : ''}@`
+          : ''
+        rawUrl = `postgresql://${creds}${host}:${port}/${database}`
+      }
+    }
+    if (!rawUrl || typeof rawUrl !== 'string') {
+      throw new Error('CockroachdbBridge requires a "url" or ("host" + "database") config')
     }
     // Normalize cockroachdb:// → postgresql:// for pg driver compatibility
     const url = rawUrl.replace(/^cockroachdb:\/\//, 'postgresql://')

@@ -1,6 +1,7 @@
 import pg from 'pg'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -22,10 +23,39 @@ export class PostgresBridge implements Bridge {
   private config: PostgresBridgeConfig
   private pkCache = new Map<string, string>()
 
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-postgres',
+    displayName: 'PostgreSQL',
+    icon: 'postgres',
+    supportsUrl: true,
+    urlPlaceholder: 'postgresql://user:pass@host:5432/dbname',
+    fields: [
+      { key: 'host', label: 'Host', type: 'string', required: true, placeholder: 'localhost' },
+      { key: 'port', label: 'Port', type: 'number', required: false, default: 5432 },
+      { key: 'database', label: 'Database', type: 'string', required: true },
+      { key: 'user', label: 'Username', type: 'string', required: true, placeholder: 'Username' },
+      { key: 'password', label: 'Password', type: 'password', required: true },
+      { key: 'ssl', label: 'SSL', type: 'boolean', required: false, default: false, group: 'advanced' },
+    ],
+  }
+
   constructor(config: Record<string, unknown>) {
-    const url = (config['url'] ?? config['connectionString']) as string | undefined
+    let url = (config['url'] ?? config['connectionString']) as string | undefined
     if (!url || typeof url !== 'string') {
-      throw new Error('PostgresBridge requires a "url" config string')
+      const host = config['host'] as string | undefined
+      const port = (config['port'] as number | undefined) ?? 5432
+      const database = (config['database'] ?? config['db']) as string | undefined
+      const user = (config['user'] ?? config['username']) as string | undefined
+      const password = config['password'] as string | undefined
+      if (host && database) {
+        const creds = user
+          ? `${encodeURIComponent(user)}${password ? ':' + encodeURIComponent(String(password)) : ''}@`
+          : ''
+        url = `postgresql://${creds}${host}:${port}/${database}`
+      }
+    }
+    if (!url || typeof url !== 'string') {
+      throw new Error('PostgresBridge requires a "url" or ("host" + "database") config')
     }
     this.config = {
       url,

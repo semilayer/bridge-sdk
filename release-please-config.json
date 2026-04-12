@@ -130,6 +130,12 @@
     },
     "packages/bridge-snowflake": {
       "package-name": "@semilayer/bridge-snowflake"
+    },
+    "packages/bridge-mariadb": {
+      "package-name": "@semilayer/bridge-mariadb"
+    },
+    "packages/bridge-oracle": {
+      "package-name": "@semilayer/bridge-oracle"
     }
   }
 }

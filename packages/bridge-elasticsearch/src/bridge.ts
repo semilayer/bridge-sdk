@@ -1,6 +1,7 @@
 import { Client } from '@elastic/elasticsearch'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -18,6 +19,56 @@ export interface ElasticsearchBridgeConfig {
 }
 
 export class ElasticsearchBridge implements Bridge {
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-elasticsearch',
+    displayName: 'Elasticsearch',
+    icon: 'elasticsearch',
+    supportsUrl: false,
+    fields: [
+      {
+        key: 'node',
+        label: 'Node URL',
+        type: 'string',
+        required: true,
+        placeholder: 'https://localhost:9200',
+        hint: 'Elasticsearch node URL',
+      },
+      {
+        key: 'apiKey',
+        label: 'API Key',
+        type: 'password',
+        required: false,
+        group: 'advanced',
+        hint: 'API key (preferred for Elastic Cloud)',
+      },
+      {
+        key: 'username',
+        label: 'Username',
+        type: 'string',
+        required: false,
+        group: 'advanced',
+        hint: 'Basic auth username',
+      },
+      {
+        key: 'password',
+        label: 'Password',
+        type: 'password',
+        required: false,
+        group: 'advanced',
+        hint: 'Basic auth password',
+      },
+      {
+        key: 'rejectUnauthorized',
+        label: 'Reject Unauthorized',
+        type: 'boolean',
+        required: false,
+        default: true,
+        group: 'advanced',
+        hint: 'Reject invalid SSL certificates',
+      },
+    ],
+  }
+
   private client: Client | null = null
   private config: ElasticsearchBridgeConfig
 

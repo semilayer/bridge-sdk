@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -20,6 +21,18 @@ export interface SupabaseBridgeConfig {
 export class SupabaseBridge implements Bridge {
   private client: SupabaseClient | null = null
   private config: SupabaseBridgeConfig
+
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-supabase',
+    displayName: 'Supabase',
+    icon: 'supabase',
+    supportsUrl: false,
+    fields: [
+      { key: 'url', label: 'Project URL', type: 'string', required: true, placeholder: 'https://xxx.supabase.co', hint: 'Your Supabase project URL' },
+      { key: 'key', label: 'Service Role Key', type: 'password', required: true, hint: 'Service role key from Project Settings → API' },
+      { key: 'schema', label: 'Schema', type: 'string', required: false, default: 'public', group: 'advanced' },
+    ],
+  }
 
   constructor(config: Record<string, unknown>) {
     const url = config['url'] as string | undefined

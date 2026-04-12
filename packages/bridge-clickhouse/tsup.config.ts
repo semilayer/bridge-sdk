@@ -7,5 +7,5 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   target: 'node22',
-  external: ['@semilayer/core', '@semilayer/bridge-sdk'],
+  external: ['@semilayer/core', '@semilayer/bridge-sdk', '@clickhouse/client'],
 })

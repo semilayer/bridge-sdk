@@ -1,6 +1,7 @@
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless'
 import type {
   Bridge,
+  BridgeManifest,
   BridgeRow,
   ReadOptions,
   ReadResult,
@@ -18,6 +19,15 @@ export class NeonBridge implements Bridge {
   private sql: NeonQueryFunction<true, false> | null = null
   private pkCache = new Map<string, string>()
   private config: NeonBridgeConfig
+
+  static manifest: BridgeManifest = {
+    packageName: '@semilayer/bridge-neon',
+    displayName: 'Neon',
+    icon: 'neon',
+    supportsUrl: true,
+    urlPlaceholder: 'postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/dbname?sslmode=require',
+    fields: [],
+  }
 
   constructor(config: Record<string, unknown>) {
     const url = config['url'] as string | undefined
