@@ -1,6 +1,6 @@
 {
   "name": "@semilayer/bridge-resolver",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "SemiLayer bridge resolver — built-in registry and dynamic bridge loading for first-party and community database adapters",
   "keywords": [
     "semilayer",

@@ -1,10 +1,10 @@
 {
   "lib/bridge-sdk": "1.1.0",
-  "lib/bridge-resolver": "1.2.0",
+  "lib/bridge-resolver": "1.2.1",
   "packages/bridge-postgres": "1.2.0",
   "packages/bridge-mysql": "1.1.0",
   "packages/bridge-sqlite": "1.1.0",
-  "packages/bridge-mssql": "1.1.0",
+  "packages/bridge-mssql": "1.1.1",
   "packages/bridge-cockroachdb": "1.1.0",
   "packages/bridge-neon": "1.1.0",
   "packages/bridge-turso": "1.1.0",
