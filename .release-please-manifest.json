@@ -1,7 +1,7 @@
 {
   "lib/bridge-sdk": "1.1.0",
-  "lib/bridge-resolver": "1.1.0",
-  "packages/bridge-postgres": "1.1.0",
+  "lib/bridge-resolver": "1.2.0",
+  "packages/bridge-postgres": "1.2.0",
   "packages/bridge-mysql": "1.1.0",
   "packages/bridge-sqlite": "1.1.0",
   "packages/bridge-mssql": "1.1.0",
