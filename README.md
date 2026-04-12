@@ -19,13 +19,40 @@ This repo splits cleanly into two top-level directories:
 
 ## Packages
 
+### Framework
+
 | Package | Path | Description |
 |---|---|---|
 | [`@semilayer/bridge-sdk`](./lib/bridge-sdk) | `lib/bridge-sdk` | Bridge interface, `MockBridge`, and the `createBridgeTestSuite` compliance harness. Bridge authors depend on this. |
 | [`@semilayer/bridge-resolver`](./lib/bridge-resolver) | `lib/bridge-resolver` | Built-in registry. `apps/worker` and `apps/service` in the SemiLayer monorepo consume this to resolve bridge names like `@semilayer/bridge-postgres` to constructors. |
-| [`@semilayer/bridge-postgres`](./packages/bridge-postgres) | `packages/bridge-postgres` | First-party PostgreSQL adapter. Reference implementation for new bridges. |
 
-More bridges (mysql, sqlite, mongodb, …) live as sibling packages under `packages/` and are released independently via release-please.
+### Adapters
+
+| Package | Database | Notes |
+|---|---|---|
+| [`@semilayer/bridge-postgres`](./packages/bridge-postgres) | PostgreSQL | Reference implementation. |
+| [`@semilayer/bridge-mysql`](./packages/bridge-mysql) | MySQL 8 | |
+| [`@semilayer/bridge-mariadb`](./packages/bridge-mariadb) | MariaDB 10/11 | |
+| [`@semilayer/bridge-sqlite`](./packages/bridge-sqlite) | SQLite | Embedded via `better-sqlite3`. No server required. |
+| [`@semilayer/bridge-mongodb`](./packages/bridge-mongodb) | MongoDB | |
+| [`@semilayer/bridge-redis`](./packages/bridge-redis) | Redis | Key-value / hash scanning. |
+| [`@semilayer/bridge-dynamodb`](./packages/bridge-dynamodb) | DynamoDB | AWS SDK v3. |
+| [`@semilayer/bridge-firestore`](./packages/bridge-firestore) | Firestore | Google Cloud / Firebase. |
+| [`@semilayer/bridge-bigquery`](./packages/bridge-bigquery) | BigQuery | Google Cloud. |
+| [`@semilayer/bridge-elasticsearch`](./packages/bridge-elasticsearch) | Elasticsearch | |
+| [`@semilayer/bridge-clickhouse`](./packages/bridge-clickhouse) | ClickHouse | |
+| [`@semilayer/bridge-cassandra`](./packages/bridge-cassandra) | Cassandra | |
+| [`@semilayer/bridge-mssql`](./packages/bridge-mssql) | SQL Server | mssql v11. |
+| [`@semilayer/bridge-oracle`](./packages/bridge-oracle) | Oracle DB | |
+| [`@semilayer/bridge-cockroachdb`](./packages/bridge-cockroachdb) | CockroachDB | Postgres-compatible wire protocol. |
+| [`@semilayer/bridge-neon`](./packages/bridge-neon) | Neon | Serverless Postgres via `@neondatabase/serverless`. |
+| [`@semilayer/bridge-turso`](./packages/bridge-turso) | Turso | Distributed SQLite via `@libsql/client`. |
+| [`@semilayer/bridge-planetscale`](./packages/bridge-planetscale) | PlanetScale | Serverless MySQL via `@planetscale/database`. |
+| [`@semilayer/bridge-supabase`](./packages/bridge-supabase) | Supabase | Postgres via `@supabase/supabase-js`. |
+| [`@semilayer/bridge-d1`](./packages/bridge-d1) | Cloudflare D1 | SQLite at the edge via Wrangler REST API. |
+| [`@semilayer/bridge-snowflake`](./packages/bridge-snowflake) | Snowflake | |
+| [`@semilayer/bridge-duckdb`](./packages/bridge-duckdb) | DuckDB | Embedded OLAP. No server required. |
+| [`@semilayer/bridge-upstash`](./packages/bridge-upstash) | Upstash Redis | Serverless Redis via REST API. |
 
 ## Quick start
 
@@ -42,6 +69,10 @@ pnpm new-bridge <name>     # e.g., pnpm new-bridge mysql
 ```
 
 This scaffolds `packages/bridge-<name>/` from the template under `templates/bridge/`. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full bridge contribution guide.
+
+## Integration tests
+
+Each bridge should have a CI workflow that runs its integration tests against a real instance of the target database. See **[docs/integration-workflows.md](./docs/integration-workflows.md)** for the full reference — Docker service snippets for every self-hosted database, cloud-credential patterns for managed services (Neon, Turso, DynamoDB, Firestore, …), and naming/health-check conventions.
 
 ## Declaring a bridge manifest
 
