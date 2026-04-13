@@ -1,6 +1,6 @@
 {
   "name": "@semilayer/bridge-sdk",
-  "version": "0.1.2",
+  "version": "1.0.0",
   "description": "SemiLayer Bridge SDK — adapter interface and test harness for building SemiLayer database bridges",
   "keywords": [
     "semilayer",
@@ -42,7 +42,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@semilayer/core": "^0.1.0"
+    "@semilayer/core": "^0.1.4"
   },
   "peerDependencies": {
     "vitest": ">=2.0.0"

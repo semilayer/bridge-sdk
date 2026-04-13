@@ -18,7 +18,14 @@ export default [
     },
     rules: {
       ...tseslint.configs.recommended.rules,
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      // TypeScript's own type-checker handles undefined-variable detection;
+      // keeping no-undef on for .ts files produces false positives for Node/Web
+      // globals (process, Buffer, URL, fetch, etc.) that TS already knows about.
+      'no-undef': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       '@typescript-eslint/no-explicit-any': 'warn',
     },
   },

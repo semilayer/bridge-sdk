@@ -1,0 +1,63 @@
+{
+  "name": "@semilayer/bridge-snowflake",
+  "version": "1.0.0",
+  "description": "SemiLayer bridge for snowflake",
+  "keywords": [
+    "semilayer",
+    "bridge",
+    "snowflake",
+    "adapter"
+  ],
+  "license": "MIT",
+  "author": "SemiLayer",
+  "homepage": "https://github.com/semilayer/bridge-sdk/tree/main/packages/bridge-snowflake#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/semilayer/bridge-sdk.git",
+    "directory": "packages/bridge-snowflake"
+  },
+  "bugs": {
+    "url": "https://github.com/semilayer/bridge-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@semilayer/core": "^0.1.4",
+    "snowflake-sdk": "^1.14.0",
+    "@types/snowflake-sdk": "^1.6.0"
+  },
+  "devDependencies": {
+    "@semilayer/bridge-sdk": "workspace:*",
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
