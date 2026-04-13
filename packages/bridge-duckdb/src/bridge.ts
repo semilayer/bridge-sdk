@@ -1,4 +1,10 @@
-import duckdb from 'duckdb'
+// Note: 'duckdb' is NOT statically imported here. DuckDB ships a native C++
+// addon (duckdb.node) that is loaded at require() time. Eagerly importing it
+// at module scope would crash any process on a platform where the prebuilt
+// binary is missing. We lazy-load it inside connect() so that bridge-resolver
+// can register DuckdbBridge on every platform — the error is deferred until
+// the bridge is actually instantiated and connected.
+import type DuckDBTypes from 'duckdb'
 import type {
   Bridge,
   BridgeManifest,
@@ -10,29 +16,45 @@ import type {
   TargetSchema,
 } from '@semilayer/core'
 
+type DuckDB = typeof DuckDBTypes
+
 // ---------------------------------------------------------------------------
-// Promisified DuckDB helpers
+// Promisified DuckDB helpers (duckdb module passed as arg — loaded lazily)
 // ---------------------------------------------------------------------------
 
-function openDb(path: string): Promise<duckdb.Database> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function openDb(ddb: DuckDB, path: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    const db = new duckdb.Database(path, (err) => (err ? reject(err) : resolve(db)))
+    // Use a let + two-step assign so the variable is in scope when the callback
+    // fires. Real DuckDB always calls back asynchronously (after the DB opens),
+    // so `db` is always assigned before resolve(db) runs in production.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, prefer-const
+    let db: any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    db = new (ddb as any).Database(path, (err: Error | null) =>
+      err ? reject(err) : resolve(db),
+    )
   })
 }
 
-function closeDb(db: duckdb.Database): Promise<void> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function closeDb(db: any): Promise<void> {
   return new Promise((resolve, reject) => {
-    db.close((err) => (err ? reject(err) : resolve()))
+    db.close((err: Error | null) => (err ? reject(err) : resolve()))
   })
 }
 
 function allRows(
-  conn: duckdb.Connection,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  conn: any,
   sql: string,
   params: unknown[] = [],
-): Promise<duckdb.RowData[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any[]> {
   return new Promise((resolve, reject) => {
-    conn.all(sql, ...params, (err, rows) => (err ? reject(err) : resolve(rows ?? [])))
+    conn.all(sql, ...params, (err: Error | null, rows: unknown[]) =>
+      err ? reject(err) : resolve(rows ?? []),
+    )
   })
 }
 
@@ -85,8 +107,11 @@ export class DuckdbBridge implements Bridge {
     ],
   }
 
-  private db: duckdb.Database | null = null
-  private conn: duckdb.Connection | null = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private db: any = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private conn: any = null
+  private duckdbNs: DuckDB | null = null
   private pkCache = new Map<string, string>()
   private readonly config: DuckdbBridgeConfig
 
@@ -96,9 +121,35 @@ export class DuckdbBridge implements Bridge {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Lazy native-module loader
+  // -------------------------------------------------------------------------
+
+  private async loadDuckdb(): Promise<DuckDB> {
+    if (!this.duckdbNs) {
+      try {
+        const mod = await import('duckdb')
+        this.duckdbNs = mod.default as DuckDB
+      } catch (e: unknown) {
+        const cause = e instanceof Error ? e.message : String(e)
+        throw new Error(
+          `DuckDB native module failed to load on ${process.platform}/${process.arch} ` +
+            `(Node ${process.version}). ` +
+            `Run "npm rebuild duckdb" or check supported platforms at ` +
+            `https://duckdb.org/docs/api/nodejs/overview\n\nCause: ${cause}`,
+        )
+      }
+    }
+    return this.duckdbNs
+  }
+
+  // -------------------------------------------------------------------------
+  // Bridge interface
+  // -------------------------------------------------------------------------
+
   async connect(): Promise<void> {
-    const path = this.config.path
-    this.db = await openDb(path)
+    const ddb = await this.loadDuckdb()
+    this.db = await openDb(ddb, this.config.path)
     this.conn = this.db.connect()
   }
 
@@ -232,7 +283,7 @@ export class DuckdbBridge implements Bridge {
     }
 
     // Build SQL parts
-    const parts = [
+    const sqlParts = [
       `SELECT ${selectClause} FROM ${quote(target)}`,
       whereClause,
       orderByClause,
@@ -241,15 +292,15 @@ export class DuckdbBridge implements Bridge {
     const dataParams = [...params]
 
     if (options.limit != null) {
-      parts.push(`LIMIT ?`)
+      sqlParts.push(`LIMIT ?`)
       dataParams.push(options.limit)
     }
     if (options.offset != null) {
-      parts.push(`OFFSET ?`)
+      sqlParts.push(`OFFSET ?`)
       dataParams.push(options.offset)
     }
 
-    const sql = parts.join(' ')
+    const sql = sqlParts.join(' ')
     const countSql = `SELECT count(*) as total FROM ${quote(target)} ${whereClause}`
 
     const [dataRows, countRows] = await Promise.all([
@@ -306,31 +357,9 @@ export class DuckdbBridge implements Bridge {
   // Internal helpers
   // ---------------------------------------------------------------------------
 
-  private assertConn(): duckdb.Connection {
+  private assertConn() {
     if (!this.conn) throw new Error('DuckdbBridge is not connected')
     return this.conn
-  }
-
-  private async getPrimaryKey(target: string): Promise<string> {
-    const cached = this.pkCache.get(target)
-    if (cached) return cached
-
-    const conn = this.assertConn()
-    const rows = (await allRows(
-      conn,
-      `PRAGMA table_info(${quote(target)})`,
-    )) as unknown as PragmaColumn[]
-
-    const pkCol = rows.find((r) => r.pk > 0)
-    if (!pkCol) {
-      // Fall back to first column if no explicit PK
-      const first = rows[0]
-      if (!first) throw new Error(`Table "${target}" has no columns`)
-      this.pkCache.set(target, first.name)
-      return first.name
-    }
-    this.pkCache.set(target, pkCol.name)
-    return pkCol.name
   }
 
   private async hasColumn(target: string, column: string): Promise<boolean> {
