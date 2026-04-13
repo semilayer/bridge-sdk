@@ -32,6 +32,9 @@ jobs:
 
       - run: pnpm turbo build
 
+      - name: Smoke test — resolver imports without crashing
+        run: node --input-type=module --eval "import('./lib/bridge-resolver/dist/index.js').then(() => console.log('resolver ok'))"
+
       - run: pnpm turbo lint
 
       - run: pnpm turbo typecheck
