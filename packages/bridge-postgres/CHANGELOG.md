@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.2.0](https://github.com/semilayer/bridge-sdk/compare/bridge-postgres-v1.1.0...bridge-postgres-v1.2.0) (2026-04-12)
+
+
+### Features
+
+* releasing bridge sdk adapters ([e90922f](https://github.com/semilayer/bridge-sdk/commit/e90922fdddbde9be7e443cecb9ed90c62412c85e))
+
+
+### Bug Fixes
+
+* **bridge-postgres:** accept record-shorthand orderBy and validate identifiers ([c12de34](https://github.com/semilayer/bridge-sdk/commit/c12de345a447a0508758bffc2dbc96e30253248d))
+* **bridge-postgres:** handle record-shorthand and malformed orderBy without crashing ([4477bb8](https://github.com/semilayer/bridge-sdk/commit/4477bb8163614c6a4806619a2a75c3fba40e266c))
+* **bridge-postgres:** handle record-shorthand and malformed orderBy without crashing ([052107b](https://github.com/semilayer/bridge-sdk/commit/052107b99908650d4f645322aa8c2a3257832b9b))
+
 ## [1.1.0](https://github.com/semilayer/bridge-sdk/compare/bridge-postgres-v1.0.0...bridge-postgres-v1.1.0) (2026-04-12)
 
 
