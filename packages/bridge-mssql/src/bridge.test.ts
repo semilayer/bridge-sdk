@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MssqlBridge } from './bridge.js'
 
 // ---------------------------------------------------------------------------
-// Mock mssql — named exports (connect) to match bridge import style
+// Mock mssql — CJS default export (mssqlLib.connect) to match bridge import
 // ---------------------------------------------------------------------------
 
 // vi.mock is hoisted above variable declarations, so we must use vi.hoisted()
@@ -21,7 +21,7 @@ const { mockRecordset, mockInput, mockRequest, mockClose, mockConnect } =
   })
 
 vi.mock('mssql', () => ({
-  connect: mockConnect,
+  default: { connect: mockConnect },
 }))
 
 // Seed helpers — recordset responses
