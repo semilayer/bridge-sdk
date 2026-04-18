@@ -1,3 +1,11 @@
+<p align="right">
+  <img src="https://semilayer.com/logo.svg" alt="SemiLayer" width="120" />
+  <br />
+  <strong>@semilayer/bridge-elasticsearch</strong>
+</p>
+
+---
+
 # @semilayer/bridge-elasticsearch
 
 SemiLayer bridge for elasticsearch.

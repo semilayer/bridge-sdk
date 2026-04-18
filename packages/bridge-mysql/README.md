@@ -1,3 +1,11 @@
+<p align="right">
+  <img src="https://semilayer.com/logo.svg" alt="SemiLayer" width="120" />
+  <br />
+  <strong>@semilayer/bridge-mysql</strong>
+</p>
+
+---
+
 # @semilayer/bridge-mysql
 
 SemiLayer bridge for mysql.
