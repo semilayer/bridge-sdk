@@ -1,3 +1,11 @@
+<p align="right">
+  <img src="https://semilayer.com/logo.svg" alt="SemiLayer" width="120" />
+  <br />
+  <strong>@semilayer/bridge-resolver</strong>
+</p>
+
+---
+
 # @semilayer/bridge-resolver
 
 Built-in bridge registry for [SemiLayer](https://semilayer.dev). Ships with first-party database adapters bundled, and provides a community contribution path: submit a PR here to add a new database, and once merged and published, SemiLayer automatically consumes it.

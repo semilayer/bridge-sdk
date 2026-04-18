@@ -1,3 +1,11 @@
+<p align="right">
+  <img src="https://semilayer.com/logo.svg" alt="SemiLayer" width="120" />
+  <br />
+  <strong>@semilayer/bridge-d1</strong>
+</p>
+
+---
+
 # @semilayer/bridge-d1
 
 SemiLayer bridge for d1.

@@ -1,3 +1,11 @@
+<p align="right">
+  <img src="https://semilayer.com/logo.svg" alt="SemiLayer" width="120" />
+  <br />
+  <strong>@semilayer/bridge-clickhouse</strong>
+</p>
+
+---
+
 # @semilayer/bridge-clickhouse
 
 SemiLayer bridge for clickhouse.
