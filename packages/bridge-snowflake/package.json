@@ -42,7 +42,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@semilayer/core": "^0.1.4",
+    "@semilayer/core": "^0.1.7",
     "snowflake-sdk": "^1.14.0",
     "@types/snowflake-sdk": "^1.6.0"
   },

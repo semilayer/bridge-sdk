@@ -43,7 +43,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@semilayer/core": "^0.1.4",
+    "@semilayer/core": "^0.1.7",
     "@upstash/redis": "^1.35.0"
   },
   "devDependencies": {

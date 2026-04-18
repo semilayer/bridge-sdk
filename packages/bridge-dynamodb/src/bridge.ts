@@ -9,13 +9,15 @@ import {
   type ScanCommandInput,
 } from '@aws-sdk/lib-dynamodb'
 import type {
+  BatchReadOptions,
   Bridge,
+  BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
-  ReadOptions,
-  ReadResult,
   QueryOptions,
   QueryResult,
+  ReadOptions,
+  ReadResult,
 } from '@semilayer/core'
 
 export interface DynamodbBridgeConfig {
@@ -27,6 +29,18 @@ export interface DynamodbBridgeConfig {
 }
 
 export class DynamodbBridge implements Bridge {
+  readonly capabilities: Partial<BridgeCapabilities> = {
+    batchRead: true,
+    wherePushdown: true,
+    orderByPushdown: true,
+    limitPushdown: true,
+    selectProjection: true,
+    nativeJoin: false,
+    cursor: true,
+    changedSince: true,
+    perKeyLimit: false,
+  }
+
   static manifest: BridgeManifest = {
     packageName: '@semilayer/bridge-dynamodb',
     displayName: 'DynamoDB',
@@ -185,6 +199,19 @@ export class DynamodbBridge implements Bridge {
       desc.Table?.ItemCount !== undefined ? Number(desc.Table.ItemCount) : undefined
 
     return { rows, nextCursor, total }
+  }
+
+  async batchRead(
+    target: string,
+    options: BatchReadOptions,
+  ): Promise<BridgeRow[]> {
+    const result = await this.query(target, {
+      where: options.where,
+      select: options.select && options.select !== '*' ? options.select : undefined,
+      orderBy: options.orderBy,
+      limit: options.limit,
+    })
+    return result.rows
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {
