@@ -1,13 +1,15 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type {
+  BatchReadOptions,
   Bridge,
+  BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
-  ReadOptions,
-  ReadResult,
+  OrderByClause,
   QueryOptions,
   QueryResult,
-  OrderByClause,
+  ReadOptions,
+  ReadResult,
 } from '@semilayer/core'
 
 export interface SupabaseBridgeConfig {
@@ -19,6 +21,18 @@ export interface SupabaseBridgeConfig {
 }
 
 export class SupabaseBridge implements Bridge {
+  readonly capabilities: Partial<BridgeCapabilities> = {
+    batchRead: true,
+    wherePushdown: true,
+    orderByPushdown: true,
+    limitPushdown: true,
+    selectProjection: true,
+    nativeJoin: false,
+    cursor: true,
+    changedSince: true,
+    perKeyLimit: false,
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private client: SupabaseClient<any, any, any> | null = null
   private config: SupabaseBridgeConfig
@@ -105,6 +119,19 @@ export class SupabaseBridge implements Bridge {
     const nextCursor = hasMore ? String(pageRows[pageRows.length - 1]![pk]) : undefined
 
     return { rows: pageRows, nextCursor, total: count ?? undefined }
+  }
+
+  async batchRead(
+    target: string,
+    options: BatchReadOptions,
+  ): Promise<BridgeRow[]> {
+    const result = await this.query(target, {
+      where: options.where,
+      select: options.select && options.select !== '*' ? options.select : undefined,
+      orderBy: options.orderBy,
+      limit: options.limit,
+    })
+    return result.rows
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {

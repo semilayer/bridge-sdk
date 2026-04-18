@@ -1,13 +1,15 @@
 import { MongoClient, ObjectId, type Document, type Sort } from 'mongodb'
 import type {
+  BatchReadOptions,
   Bridge,
+  BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
-  ReadOptions,
-  ReadResult,
+  OrderByClause,
   QueryOptions,
   QueryResult,
-  OrderByClause,
+  ReadOptions,
+  ReadResult,
 } from '@semilayer/core'
 
 export interface MongodbBridgeConfig {
@@ -17,6 +19,18 @@ export interface MongodbBridgeConfig {
 }
 
 export class MongodbBridge implements Bridge {
+  readonly capabilities: Partial<BridgeCapabilities> = {
+    batchRead: true,
+    wherePushdown: true,
+    orderByPushdown: true,
+    limitPushdown: true,
+    selectProjection: true,
+    nativeJoin: false,
+    cursor: true,
+    changedSince: true,
+    perKeyLimit: false,
+  }
+
   static manifest: BridgeManifest = {
     packageName: '@semilayer/bridge-mongodb',
     displayName: 'MongoDB',
@@ -127,6 +141,19 @@ export class MongodbBridge implements Bridge {
     const rows: BridgeRow[] = pageDocs.map((doc) => ({ ...doc, _id: String(doc['_id']) }))
 
     return { rows, nextCursor, total }
+  }
+
+  async batchRead(
+    target: string,
+    options: BatchReadOptions,
+  ): Promise<BridgeRow[]> {
+    const result = await this.query(target, {
+      where: options.where,
+      select: options.select && options.select !== '*' ? options.select : undefined,
+      orderBy: options.orderBy,
+      limit: options.limit,
+    })
+    return result.rows
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {

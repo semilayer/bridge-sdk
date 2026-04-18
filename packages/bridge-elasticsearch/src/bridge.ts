@@ -1,13 +1,15 @@
 import { Client } from '@elastic/elasticsearch'
 import type {
+  BatchReadOptions,
   Bridge,
+  BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
-  ReadOptions,
-  ReadResult,
+  OrderByClause,
   QueryOptions,
   QueryResult,
-  OrderByClause,
+  ReadOptions,
+  ReadResult,
 } from '@semilayer/core'
 
 export interface ElasticsearchBridgeConfig {
@@ -19,6 +21,18 @@ export interface ElasticsearchBridgeConfig {
 }
 
 export class ElasticsearchBridge implements Bridge {
+  readonly capabilities: Partial<BridgeCapabilities> = {
+    batchRead: true,
+    wherePushdown: true,
+    orderByPushdown: true,
+    limitPushdown: true,
+    selectProjection: true,
+    nativeJoin: false,
+    cursor: true,
+    changedSince: true,
+    perKeyLimit: false,
+  }
+
   static manifest: BridgeManifest = {
     packageName: '@semilayer/bridge-elasticsearch',
     displayName: 'Elasticsearch',
@@ -156,6 +170,19 @@ export class ElasticsearchBridge implements Bridge {
     const total = typeof totalObj === 'number' ? totalObj : totalObj?.value
 
     return { rows, nextCursor, total }
+  }
+
+  async batchRead(
+    target: string,
+    options: BatchReadOptions,
+  ): Promise<BridgeRow[]> {
+    const result = await this.query(target, {
+      where: options.where,
+      select: options.select && options.select !== '*' ? options.select : undefined,
+      orderBy: options.orderBy,
+      limit: options.limit,
+    })
+    return result.rows
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {

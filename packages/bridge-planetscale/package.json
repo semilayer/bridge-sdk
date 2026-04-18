@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@planetscale/database": "^1.19.0",
-    "@semilayer/core": "^0.1.4"
+    "@semilayer/core": "^0.1.7"
   },
   "devDependencies": {
     "@semilayer/bridge-sdk": "workspace:*",

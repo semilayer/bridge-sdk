@@ -43,7 +43,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@semilayer/core": "^0.1.4",
+    "@semilayer/core": "^0.1.7",
     "mssql": "^11.0.0"
   },
   "devDependencies": {
