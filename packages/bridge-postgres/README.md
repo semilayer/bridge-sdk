@@ -1,3 +1,11 @@
+<p align="right">
+  <img src="https://semilayer.com/logo.svg" alt="SemiLayer" width="120" />
+  <br />
+  <strong>@semilayer/bridge-postgres</strong>
+</p>
+
+---
+
 # @semilayer/bridge-postgres
 
 First-party PostgreSQL adapter for [SemiLayer](https://semilayer.com) — the intelligence layer for any database.

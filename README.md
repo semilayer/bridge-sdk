@@ -1,5 +1,5 @@
 <p align="right">
-  <img src="assets/logo.png" alt="SemiLayer" width="120" />
+  <img src="https://semilayer.com/logo.svg" alt="SemiLayer" width="120" />
   <br />
   <strong>SemiLayer / bridges</strong>
 </p>

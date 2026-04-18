@@ -1,3 +1,11 @@
+<p align="right">
+  <img src="https://semilayer.com/logo.svg" alt="SemiLayer" width="120" />
+  <br />
+  <strong>@semilayer/bridge-cassandra</strong>
+</p>
+
+---
+
 # @semilayer/bridge-cassandra
 
 SemiLayer bridge for cassandra.

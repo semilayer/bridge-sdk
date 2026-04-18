@@ -1,3 +1,11 @@
+<p align="right">
+  <img src="https://semilayer.com/logo.svg" alt="SemiLayer" width="120" />
+  <br />
+  <strong>@semilayer/bridge-sqlite</strong>
+</p>
+
+---
+
 # @semilayer/bridge-sqlite
 
 SemiLayer bridge for sqlite.
