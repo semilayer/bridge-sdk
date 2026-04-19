@@ -1,6 +1,8 @@
 import pg from 'pg'
 import type {
+  BatchReadOptions,
   Bridge,
+  BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
   ReadOptions,
@@ -22,6 +24,18 @@ export class PostgresBridge implements Bridge {
   private pool: pg.Pool | null = null
   private config: PostgresBridgeConfig
   private pkCache = new Map<string, string>()
+
+  readonly capabilities: Partial<BridgeCapabilities> = {
+    batchRead: true,
+    wherePushdown: true,
+    orderByPushdown: true,
+    limitPushdown: true,
+    selectProjection: true,
+    nativeJoin: false,
+    cursor: true,
+    changedSince: true,
+    perKeyLimit: false,
+  }
 
   static manifest: BridgeManifest = {
     packageName: '@semilayer/bridge-postgres',
@@ -282,6 +296,117 @@ export class PostgresBridge implements Bridge {
       rows: dataResult.rows as BridgeRow[],
       total: (countResult.rows as Array<{ total: number }>)[0]!.total,
     }
+  }
+
+  /**
+   * Fetch many rows matching a filter — used by the join planner.
+   *
+   * Reuses the same operator support as `query` but skips the COUNT query,
+   * which is pure overhead for join stitching (we're fetching known rows,
+   * not paginating).
+   */
+  async batchRead(
+    target: string,
+    options: BatchReadOptions,
+  ): Promise<BridgeRow[]> {
+    const pool = this.assertPool()
+    const table = target
+    assertTableName(table)
+
+    const selectClause =
+      !options.select || options.select === '*'
+        ? '*'
+        : options.select.map(quote).join(', ')
+
+    const params: unknown[] = []
+    let paramIdx = 1
+
+    const conditions: string[] = []
+    for (const [key, value] of Object.entries(options.where)) {
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
+          switch (op) {
+            case '$eq':
+              conditions.push(`${quote(key)} = $${paramIdx}`)
+              params.push(opVal)
+              paramIdx++
+              break
+            case '$gt':
+              conditions.push(`${quote(key)} > $${paramIdx}`)
+              params.push(opVal)
+              paramIdx++
+              break
+            case '$gte':
+              conditions.push(`${quote(key)} >= $${paramIdx}`)
+              params.push(opVal)
+              paramIdx++
+              break
+            case '$lt':
+              conditions.push(`${quote(key)} < $${paramIdx}`)
+              params.push(opVal)
+              paramIdx++
+              break
+            case '$lte':
+              conditions.push(`${quote(key)} <= $${paramIdx}`)
+              params.push(opVal)
+              paramIdx++
+              break
+            case '$in':
+              conditions.push(`${quote(key)} = ANY($${paramIdx})`)
+              params.push(opVal)
+              paramIdx++
+              break
+            default:
+              throw new Error(`Unknown operator "${op}" on field "${key}"`)
+          }
+        }
+      } else {
+        conditions.push(`${quote(key)} = $${paramIdx}`)
+        params.push(value)
+        paramIdx++
+      }
+    }
+
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+
+    let orderByClause = ''
+    if (options.orderBy) {
+      const raw = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
+      const parts: string[] = []
+      for (const clause of raw) {
+        const obj = clause as unknown as Record<string, unknown>
+        if (typeof obj.field === 'string') {
+          parts.push(`${quote(obj.field)} ${obj.dir === 'desc' ? 'DESC' : 'ASC'}`)
+        } else {
+          for (const [col, dir] of Object.entries(obj)) {
+            if (dir === 'asc' || dir === 'desc') {
+              parts.push(`${quote(col)} ${dir === 'desc' ? 'DESC' : 'ASC'}`)
+            }
+          }
+        }
+      }
+      if (parts.length > 0) orderByClause = `ORDER BY ${parts.join(', ')}`
+    }
+
+    let limitClause = ''
+    if (options.limit != null) {
+      limitClause = `LIMIT $${paramIdx}`
+      params.push(options.limit)
+      paramIdx++
+    }
+
+    const sql = [
+      `SELECT ${selectClause} FROM ${quote(table)}`,
+      whereClause,
+      orderByClause,
+      limitClause,
+    ]
+      .filter(Boolean)
+      .join(' ')
+
+    const result = await pool.query(sql, params)
+    return result.rows as BridgeRow[]
   }
 
   // -------------------------------------------------------------------

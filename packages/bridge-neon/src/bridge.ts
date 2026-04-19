@@ -1,12 +1,14 @@
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless'
 import type {
+  BatchReadOptions,
   Bridge,
+  BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
-  ReadOptions,
-  ReadResult,
   QueryOptions,
   QueryResult,
+  ReadOptions,
+  ReadResult,
 } from '@semilayer/core'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
@@ -16,6 +18,18 @@ export interface NeonBridgeConfig {
 }
 
 export class NeonBridge implements Bridge {
+  readonly capabilities: Partial<BridgeCapabilities> = {
+    batchRead: true,
+    wherePushdown: true,
+    orderByPushdown: true,
+    limitPushdown: true,
+    selectProjection: true,
+    nativeJoin: false,
+    cursor: true,
+    changedSince: true,
+    perKeyLimit: false,
+  }
+
   private sql: NeonQueryFunction<false, true> | null = null
   private pkCache = new Map<string, string>()
   private config: NeonBridgeConfig
@@ -99,6 +113,19 @@ export class NeonBridge implements Bridge {
     assertTableName(target)
     const result = await sql(`SELECT count(*)::int AS total FROM ${quote(target)}`)
     return result.rows[0]!['total'] as number
+  }
+
+  async batchRead(
+    target: string,
+    options: BatchReadOptions,
+  ): Promise<BridgeRow[]> {
+    const result = await this.query(target, {
+      where: options.where,
+      select: options.select && options.select !== '*' ? options.select : undefined,
+      orderBy: options.orderBy,
+      limit: options.limit,
+    })
+    return result.rows
   }
 
   async query(

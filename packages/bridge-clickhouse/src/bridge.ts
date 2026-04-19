@@ -1,13 +1,15 @@
 import type {
+  BatchReadOptions,
   Bridge,
+  BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
-  ReadOptions,
-  ReadResult,
   QueryOptions,
   QueryResult,
-  TargetSchema,
+  ReadOptions,
+  ReadResult,
   TargetColumnInfo,
+  TargetSchema,
 } from '@semilayer/core'
 import { createClient, type ClickHouseClient } from '@clickhouse/client'
 
@@ -39,6 +41,18 @@ function quoteId(id: string): string {
 }
 
 export class ClickhouseBridge implements Bridge {
+  readonly capabilities: Partial<BridgeCapabilities> = {
+    batchRead: true,
+    wherePushdown: true,
+    orderByPushdown: true,
+    limitPushdown: true,
+    selectProjection: true,
+    nativeJoin: false,
+    cursor: true,
+    changedSince: true,
+    perKeyLimit: false,
+  }
+
   static manifest: BridgeManifest = {
     packageName: '@semilayer/bridge-clickhouse',
     displayName: 'ClickHouse',
@@ -185,6 +199,19 @@ export class ClickhouseBridge implements Bridge {
       await this.client.close()
       this.client = null
     }
+  }
+
+  async batchRead(
+    target: string,
+    options: BatchReadOptions,
+  ): Promise<BridgeRow[]> {
+    const result = await this.query(target, {
+      where: options.where,
+      select: options.select && options.select !== '*' ? options.select : undefined,
+      orderBy: options.orderBy,
+      limit: options.limit,
+    })
+    return result.rows
   }
 
   async query(target: string, options: QueryOptions): Promise<QueryResult<BridgeRow>> {

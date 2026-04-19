@@ -1,13 +1,15 @@
 import { Firestore, FieldPath, type Query, type WhereFilterOp } from '@google-cloud/firestore'
 import type {
+  BatchReadOptions,
   Bridge,
+  BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
-  ReadOptions,
-  ReadResult,
+  OrderByClause,
   QueryOptions,
   QueryResult,
-  OrderByClause,
+  ReadOptions,
+  ReadResult,
 } from '@semilayer/core'
 
 export interface FirestoreBridgeConfig {
@@ -18,6 +20,18 @@ export interface FirestoreBridgeConfig {
 }
 
 export class FirestoreBridge implements Bridge {
+  readonly capabilities: Partial<BridgeCapabilities> = {
+    batchRead: true,
+    wherePushdown: true,
+    orderByPushdown: true,
+    limitPushdown: true,
+    selectProjection: true,
+    nativeJoin: false,
+    cursor: true,
+    changedSince: true,
+    perKeyLimit: false,
+  }
+
   static manifest: BridgeManifest = {
     packageName: '@semilayer/bridge-firestore',
     displayName: 'Firestore',
@@ -143,6 +157,19 @@ export class FirestoreBridge implements Bridge {
     const total = await this.count(target)
 
     return { rows, nextCursor, total }
+  }
+
+  async batchRead(
+    target: string,
+    options: BatchReadOptions,
+  ): Promise<BridgeRow[]> {
+    const result = await this.query(target, {
+      where: options.where,
+      select: options.select && options.select !== '*' ? options.select : undefined,
+      orderBy: options.orderBy,
+      limit: options.limit,
+    })
+    return result.rows
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {

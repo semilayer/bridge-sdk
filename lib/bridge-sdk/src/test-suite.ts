@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { Bridge, BridgeRow } from '@semilayer/core'
+import { resolveBridgeCapabilities } from '@semilayer/core'
 
 export interface BridgeTestSuiteOptions {
   factory: () => Bridge
@@ -123,6 +124,94 @@ export function createBridgeTestSuite(opts: BridgeTestSuiteOptions): void {
         expect(page.rows[0]![seed.primaryKey]).toBe(
           all.rows[1]![seed.primaryKey],
         )
+      })
+    })
+
+    // ─── batchRead (used by the join planner) ─────────────────────────
+    //
+    // Bridges that advertise capabilities.batchRead must answer a `$in`
+    // filter on the primary key and return matching rows. These tests
+    // run only against bridges that declare the capability — bridges
+    // that explicitly opt out are skipped rather than failed so we can
+    // test graceful-degradation paths against the same harness.
+
+    describe('batchRead() support', () => {
+      it('skips if capabilities.batchRead is false', async () => {
+        const caps = resolveBridgeCapabilities(bridge)
+        if (!caps.batchRead) {
+          // Sanity check: if not declared, the method should not exist
+          // either (so callers checking method presence also skip cleanly).
+          expect(typeof bridge.batchRead).toBe('undefined')
+        }
+      })
+
+      it('batchRead() returns rows matching $in', async () => {
+        const caps = resolveBridgeCapabilities(bridge)
+        if (!caps.batchRead || !bridge.batchRead) return
+
+        const pk = seed.primaryKey
+        const ids = seed.rows.slice(0, 3).map((r) => r[pk])
+        const rows = await bridge.batchRead(seed.target, {
+          where: { [pk]: { $in: ids } },
+        })
+        expect(rows.length).toBe(ids.length)
+        const returned = new Set(rows.map((r) => r[pk]))
+        for (const id of ids) expect(returned.has(id)).toBe(true)
+      })
+
+      it('batchRead() returns [] for empty $in', async () => {
+        const caps = resolveBridgeCapabilities(bridge)
+        if (!caps.batchRead || !bridge.batchRead) return
+
+        const rows = await bridge.batchRead(seed.target, {
+          where: { [seed.primaryKey]: { $in: [] } },
+        })
+        expect(rows).toEqual([])
+      })
+
+      it('batchRead() drops missing ids without erroring', async () => {
+        const caps = resolveBridgeCapabilities(bridge)
+        if (!caps.batchRead || !bridge.batchRead) return
+
+        const pk = seed.primaryKey
+        const realIds = seed.rows.slice(0, 2).map((r) => r[pk])
+        // Mix a real id with two that can't possibly exist.
+        const mixed = [...realIds, '__missing_1__', '__missing_2__']
+        const rows = await bridge.batchRead(seed.target, {
+          where: { [pk]: { $in: mixed } },
+        })
+        expect(rows.length).toBe(realIds.length)
+      })
+
+      it('batchRead() respects select projection', async () => {
+        const caps = resolveBridgeCapabilities(bridge)
+        if (!caps.batchRead || !bridge.batchRead) return
+
+        const pk = seed.primaryKey
+        const ids = [seed.rows[0]![pk]]
+        const rows = await bridge.batchRead(seed.target, {
+          where: { [pk]: { $in: ids } },
+          select: [pk],
+        })
+        expect(rows.length).toBe(1)
+        // With projection, only the pk column should be present. Some bridges
+        // (notably NoSQL with rigid row shapes) may still include extra
+        // fields — we accept as long as pk round-trips.
+        expect(rows[0]![pk]).toBe(ids[0])
+      })
+
+      it('batchRead() respects limit cap', async () => {
+        const caps = resolveBridgeCapabilities(bridge)
+        if (!caps.batchRead || !bridge.batchRead) return
+
+        const pk = seed.primaryKey
+        const allIds = seed.rows.map((r) => r[pk])
+        if (allIds.length < 3) return
+        const rows = await bridge.batchRead(seed.target, {
+          where: { [pk]: { $in: allIds } },
+          limit: 2,
+        })
+        expect(rows.length).toBeLessThanOrEqual(2)
       })
     })
   })

@@ -66,7 +66,7 @@
     "@semilayer/bridge-snowflake": "workspace:*",
     "@semilayer/bridge-mariadb": "workspace:*",
     "@semilayer/bridge-oracle": "workspace:*",
-    "@semilayer/core": "^0.1.4"
+    "@semilayer/core": "^0.1.7"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

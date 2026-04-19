@@ -6,13 +6,15 @@
 // the bridge is actually instantiated and connected.
 import type DuckDBTypes from 'duckdb'
 import type {
+  BatchReadOptions,
   Bridge,
+  BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
-  ReadOptions,
-  ReadResult,
   QueryOptions,
   QueryResult,
+  ReadOptions,
+  ReadResult,
   TargetSchema,
 } from '@semilayer/core'
 
@@ -90,6 +92,18 @@ interface PragmaColumn {
 // ---------------------------------------------------------------------------
 
 export class DuckdbBridge implements Bridge {
+  readonly capabilities: Partial<BridgeCapabilities> = {
+    batchRead: true,
+    wherePushdown: true,
+    orderByPushdown: true,
+    limitPushdown: true,
+    selectProjection: true,
+    nativeJoin: false,
+    cursor: true,
+    changedSince: true,
+    perKeyLimit: false,
+  }
+
   static manifest: BridgeManifest = {
     packageName: '@semilayer/bridge-duckdb',
     displayName: 'DuckDB',
@@ -199,6 +213,19 @@ export class DuckdbBridge implements Bridge {
     const conn = this.assertConn()
     const rows = await allRows(conn, `SELECT count(*) as total FROM ${quote(target)}`)
     return Number((rows[0] as Record<string, unknown>)?.['total'] ?? 0)
+  }
+
+  async batchRead(
+    target: string,
+    options: BatchReadOptions,
+  ): Promise<BridgeRow[]> {
+    const result = await this.query(target, {
+      where: options.where,
+      select: options.select && options.select !== '*' ? options.select : undefined,
+      orderBy: options.orderBy,
+      limit: options.limit,
+    })
+    return result.rows
   }
 
   async query(
