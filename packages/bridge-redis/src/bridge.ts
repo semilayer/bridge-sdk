@@ -1,13 +1,15 @@
 import Redis from 'ioredis'
 import type {
+  BatchReadOptions,
   Bridge,
+  BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
-  ReadOptions,
-  ReadResult,
+  OrderByClause,
   QueryOptions,
   QueryResult,
-  OrderByClause,
+  ReadOptions,
+  ReadResult,
 } from '@semilayer/core'
 
 export interface RedisBridgeConfig {
@@ -68,6 +70,18 @@ function sortRows(rows: BridgeRow[], orderBy: OrderByClause | OrderByClause[]): 
 }
 
 export class RedisBridge implements Bridge {
+  readonly capabilities: Partial<BridgeCapabilities> = {
+    batchRead: true,
+    wherePushdown: true,
+    orderByPushdown: true,
+    limitPushdown: true,
+    selectProjection: true,
+    nativeJoin: false,
+    cursor: true,
+    changedSince: true,
+    perKeyLimit: false,
+  }
+
   static manifest: BridgeManifest = {
     packageName: '@semilayer/bridge-redis',
     displayName: 'Redis',
@@ -184,6 +198,19 @@ export class RedisBridge implements Bridge {
       rows.push({ _key: key, ...obj })
     }
     return { rows, nextCursor, total: allKeys.length }
+  }
+
+  async batchRead(
+    target: string,
+    options: BatchReadOptions,
+  ): Promise<BridgeRow[]> {
+    const result = await this.query(target, {
+      where: options.where,
+      select: options.select && options.select !== '*' ? options.select : undefined,
+      orderBy: options.orderBy,
+      limit: options.limit,
+    })
+    return result.rows
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {

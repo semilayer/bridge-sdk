@@ -44,7 +44,7 @@
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.758.0",
     "@aws-sdk/lib-dynamodb": "^3.758.0",
-    "@semilayer/core": "^0.1.4"
+    "@semilayer/core": "^0.1.7"
   },
   "devDependencies": {
     "@semilayer/bridge-sdk": "workspace:*",

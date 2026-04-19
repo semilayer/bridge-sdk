@@ -1,13 +1,15 @@
 import type {
+  BatchReadOptions,
   Bridge,
+  BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
-  ReadOptions,
-  ReadResult,
   QueryOptions,
   QueryResult,
-  TargetSchema,
+  ReadOptions,
+  ReadResult,
   TargetColumnInfo,
+  TargetSchema,
 } from '@semilayer/core'
 import { BigQuery } from '@google-cloud/bigquery'
 
@@ -54,6 +56,18 @@ async function countQuery(bq: BigQuery, sql: string, params?: Record<string, unk
 }
 
 export class BigqueryBridge implements Bridge {
+  readonly capabilities: Partial<BridgeCapabilities> = {
+    batchRead: true,
+    wherePushdown: true,
+    orderByPushdown: true,
+    limitPushdown: true,
+    selectProjection: true,
+    nativeJoin: false,
+    cursor: true,
+    changedSince: true,
+    perKeyLimit: false,
+  }
+
   static manifest: BridgeManifest = {
     packageName: '@semilayer/bridge-bigquery',
     displayName: 'BigQuery',
@@ -191,6 +205,19 @@ export class BigqueryBridge implements Bridge {
   async disconnect(): Promise<void> {
     // BigQuery SDK is stateless HTTP — no persistent connection to close
     this.bq = null
+  }
+
+  async batchRead(
+    target: string,
+    options: BatchReadOptions,
+  ): Promise<BridgeRow[]> {
+    const result = await this.query(target, {
+      where: options.where,
+      select: options.select && options.select !== '*' ? options.select : undefined,
+      orderBy: options.orderBy,
+      limit: options.limit,
+    })
+    return result.rows
   }
 
   async query(target: string, options: QueryOptions): Promise<QueryResult<BridgeRow>> {
