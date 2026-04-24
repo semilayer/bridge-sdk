@@ -1,4 +1,6 @@
 import pg from 'pg'
+import * as dns from 'node:dns/promises'
+import { isIP } from 'node:net'
 import type {
   BatchReadOptions,
   Bridge,
@@ -19,19 +21,31 @@ export interface PostgresBridgeConfig {
   url: string
   pool?: { min?: number; max?: number }
   /**
-   * IP family preference for DNS resolution. Passed to `dns.lookup()`
-   * under the hood (via `pg.Pool`'s `family` option).
+   * IP family preference for DNS resolution.
+   *
+   * We pre-resolve the URL's hostname ourselves (via `dns.lookup(host,
+   * {family})`) and substitute the resolved IP literal into the pool
+   * config. This is NOT optional plumbing: `pg@8` silently drops the
+   * `family` option passed to `pg.Pool` — it calls `net.Socket.connect
+   * (port, host)` with no options, so Node's `autoSelectFamily` (happy-
+   * eyeballs, default-on in Node 20+) races IPv4 and IPv6 regardless of
+   * what we set. In serverless/VPC-egress environments (Cloud Run Direct
+   * VPC, AWS Lambda in-VPC) IPv6 packets often blackhole — happy-eyeballs
+   * stalls TCP connect until kernel timeout (~21s per v6 address) and
+   * the error aggregates ALL addresses even though IPv4 would have
+   * succeeded. Passing `host` as a literal IP bypasses DNS entirely and
+   * forces the family we actually want.
+   *
+   * TLS note: we set `ssl.servername` back to the original hostname so
+   * SNI-based routing still works after the host swap. Neon, Supabase,
+   * and most managed Postgres need this.
    *
    * - `4` (default) — **IPv4 only**. Safest for serverless + VPC-egress
-   *   setups (Cloud Run Direct VPC, AWS Lambda in-VPC, etc.) where the
-   *   platform advertises IPv6 routing but the egress gateway silently
-   *   drops IPv6 packets. Happy-eyeballs can't fast-fail through that
-   *   blackhole, so an unlucky IPv6 attempt stalls the entire TCP connect
-   *   until kernel timeout (~21s per address). IPv4-only sidesteps it
-   *   entirely. Every widely-used hosted Postgres (Neon, RDS, Supabase,
+   *   setups. Every widely-used hosted Postgres (Neon, RDS, Supabase,
    *   Cloud SQL, PlanetScale, Aiven, Railway) returns IPv4 addresses.
    * - `6` — IPv6 only. For clusters that genuinely run IPv6-only PG.
-   * - `0` — try both, let Node's happy-eyeballs pick. Legacy behavior.
+   * - `0` — skip pre-resolution entirely, let Node's happy-eyeballs pick.
+   *   Legacy behavior; only use if you have a specific reason.
    *
    * Leave unset unless you know you need `6` or `0`.
    */
@@ -129,20 +143,12 @@ export class PostgresBridge implements Bridge {
   }
 
   async connect(): Promise<void> {
-    // `family` is passed through to `dns.lookup()` at connect time.
-    // pg-node accepts it but `PoolConfig` doesn't list it — cast through
-    // the documented superset that Client/Pool actually honor.
-    this.pool = new pg.Pool({
-      connectionString: this.config.url,
-      min: this.config.pool?.min ?? 0,
-      max: this.config.pool?.max ?? 3,
-      connectionTimeoutMillis: this.config.connectionTimeoutMillis ?? 10_000,
-      // IPv4-only by default — avoids the serverless/VPC-egress
-      // happy-eyeballs blackhole where IPv6 packets silently drop and
-      // TCP stalls ~21s per IPv6 address before the client falls back.
-      // See PostgresBridgeConfig.ipFamily.
-      family: this.config.ipFamily ?? 4,
-    } as pg.PoolConfig & { family: 4 | 6 | 0 })
+    // See PostgresBridgeConfig.ipFamily for the full story. Short version:
+    // pg silently ignores its `family` option, so we pre-resolve DNS to
+    // the requested family ourselves and feed pg a literal IP as `host`.
+    // `ssl.servername` preserves SNI routing for the original hostname.
+    const poolConfig = await buildPoolConfig(this.config)
+    this.pool = new pg.Pool(poolConfig)
     const client = await this.pool.connect()
     try {
       await client.query('SELECT 1')
@@ -543,5 +549,90 @@ function quote(identifier: string): string {
 function assertTableName(table: string): void {
   if (!TABLE_NAME_RE.test(table)) {
     throw new Error(`Invalid table name: "${table}"`)
+  }
+}
+
+type ResolvedSsl =
+  | boolean
+  | { rejectUnauthorized: boolean; servername: string }
+
+/**
+ * Build the `pg.Pool` config from the bridge config, pre-resolving DNS
+ * to the requested IP family so pg's happy-eyeballs no-op is bypassed.
+ * Exported only for tests.
+ */
+export async function buildPoolConfig(
+  config: PostgresBridgeConfig,
+): Promise<pg.PoolConfig> {
+  const parsed = parseUrlHostAndSsl(config.url)
+  const family = config.ipFamily ?? 4
+
+  let resolvedHost: string | undefined
+  let sslServername = parsed.host
+
+  // Skip pre-resolution when the host is a unix socket path, already an
+  // IP literal, or the caller explicitly opted out via family=0.
+  const shouldResolve =
+    family !== 0 &&
+    parsed.host.length > 0 &&
+    !parsed.host.startsWith('/') &&
+    isIP(parsed.host) === 0
+
+  if (shouldResolve) {
+    try {
+      const { address } = await dns.lookup(parsed.host, { family })
+      resolvedHost = address
+      sslServername = parsed.host
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new Error(
+        `Failed to resolve "${parsed.host}" to IPv${family}: ${msg}`,
+      )
+    }
+  }
+
+  const ssl = buildSslConfig(parsed.sslMode, sslServername)
+
+  const poolConfig: pg.PoolConfig = {
+    connectionString: config.url,
+    min: config.pool?.min ?? 0,
+    max: config.pool?.max ?? 3,
+    connectionTimeoutMillis: config.connectionTimeoutMillis ?? 10_000,
+  }
+  if (resolvedHost !== undefined) {
+    poolConfig.host = resolvedHost
+  }
+  if (ssl !== null) {
+    poolConfig.ssl = ssl
+  }
+  return poolConfig
+}
+
+interface ParsedUrl {
+  host: string
+  sslMode: string | null
+}
+
+function parseUrlHostAndSsl(url: string): ParsedUrl {
+  try {
+    const u = new URL(url)
+    return { host: u.hostname, sslMode: u.searchParams.get('sslmode') }
+  } catch {
+    // Exotic URL shapes pg accepts but WHATWG URL rejects. Fall back to
+    // letting pg do whatever it would have done — at least we don't
+    // break the connection path.
+    return { host: '', sslMode: null }
+  }
+}
+
+function buildSslConfig(
+  sslMode: string | null,
+  originalHost: string,
+): ResolvedSsl | null {
+  if (!sslMode) return null
+  if (sslMode === 'disable') return false
+  return {
+    rejectUnauthorized: sslMode === 'verify-full' || sslMode === 'verify-ca',
+    servername: originalHost,
   }
 }
