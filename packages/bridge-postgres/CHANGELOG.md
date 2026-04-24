@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.2](https://github.com/semilayer/bridge-sdk/compare/bridge-postgres-v1.4.1...bridge-postgres-v1.4.2) (2026-04-24)
+
+
+### Bug Fixes
+
+* **bridge-postgres:** handle schema-qualified table names ([76fe875](https://github.com/semilayer/bridge-sdk/commit/76fe87556565b7a05df57936b8008046cbb9e42b))
+* **bridge-postgres:** handle schema-qualified table names ([6051e57](https://github.com/semilayer/bridge-sdk/commit/6051e57a890569e5b1a3f60640cb8cc73c644dbb))
+
 ## [1.4.1](https://github.com/semilayer/bridge-sdk/compare/bridge-postgres-v1.4.0...bridge-postgres-v1.4.1) (2026-04-24)
 
 
