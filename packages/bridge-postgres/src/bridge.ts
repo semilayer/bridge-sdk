@@ -15,7 +15,38 @@ import type {
 } from '@semilayer/core'
 import { introspect, listTables } from './introspect.js'
 
-const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
+const IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+
+interface ParsedTable {
+  schema: string
+  table: string
+  /** Normalized `schema.table` — stable key for caches. */
+  key: string
+}
+
+/**
+ * Split a user-provided target into `{ schema, table }`. Accepts either
+ * `'products'` (schema defaults to `'public'`) or `'my_schema.products'`.
+ * More than one `.` is rejected — PG allows dots inside quoted idents, but
+ * supporting that would require us to accept already-quoted input and we
+ * don't. Each part is validated against IDENT_RE so an invalid input like
+ * `'DROP TABLE--'` still throws.
+ */
+function parseQualifiedTable(input: string): ParsedTable {
+  const parts = input.split('.')
+  if (parts.length > 2) {
+    throw new Error(`Invalid table name: "${input}"`)
+  }
+  const [schema, table] = parts.length === 2 ? parts : ['public', parts[0]!]
+  if (!IDENT_RE.test(schema!) || !IDENT_RE.test(table!)) {
+    throw new Error(`Invalid table name: "${input}"`)
+  }
+  return { schema: schema!, table: table!, key: `${schema}.${table}` }
+}
+
+function quoteTable(p: ParsedTable): string {
+  return `"${p.schema.replace(/"/g, '""')}"."${p.table.replace(/"/g, '""')}"`
+}
 
 export interface PostgresBridgeConfig {
   url: string
@@ -159,10 +190,10 @@ export class PostgresBridge implements Bridge {
 
   async read(target: string, options?: ReadOptions): Promise<ReadResult> {
     const pool = this.assertPool()
-    const table = target
-    assertTableName(table)
+    const parsed = parseQualifiedTable(target)
+    const qualified = quoteTable(parsed)
 
-    const pk = await this.getPrimaryKey(table)
+    const pk = await this.getPrimaryKey(parsed)
     const fields = options?.fields
     const selectClause = fields ? fields.map(quote).join(', ') : '*'
     const limit = options?.limit ?? 1000
@@ -179,7 +210,7 @@ export class PostgresBridge implements Bridge {
 
     if (options?.changedSince) {
       const col = options.changeTrackingColumn ?? 'updated_at'
-      const hasCol = await this.hasColumn(table, col)
+      const hasCol = await this.hasColumn(parsed, col)
       if (hasCol) {
         conditions.push(`${quote(col)} > $${paramIdx}`)
         params.push(options.changedSince)
@@ -193,7 +224,7 @@ export class PostgresBridge implements Bridge {
     // Fetch limit+1 to detect whether there's a next page
     params.push(limit + 1)
 
-    const sql = `SELECT ${selectClause} FROM ${quote(table)} ${whereClause} ORDER BY ${quote(pk)} ASC LIMIT $${paramIdx}`
+    const sql = `SELECT ${selectClause} FROM ${qualified} ${whereClause} ORDER BY ${quote(pk)} ASC LIMIT $${paramIdx}`
 
     const result = await pool.query(sql, params)
     const allRows: BridgeRow[] = result.rows as BridgeRow[]
@@ -205,7 +236,7 @@ export class PostgresBridge implements Bridge {
       : undefined
 
     const countResult = await pool.query(
-      `SELECT count(*)::int AS total FROM ${quote(table)}`,
+      `SELECT count(*)::int AS total FROM ${qualified}`,
     )
     const total = (countResult.rows as Array<{ total: number }>)[0]!.total
 
@@ -214,11 +245,10 @@ export class PostgresBridge implements Bridge {
 
   async count(target: string): Promise<number> {
     const pool = this.assertPool()
-    const table = target
-    assertTableName(table)
+    const qualified = quoteTable(parseQualifiedTable(target))
 
     const result = await pool.query(
-      `SELECT count(*)::int AS total FROM ${quote(table)}`,
+      `SELECT count(*)::int AS total FROM ${qualified}`,
     )
     return (result.rows as Array<{ total: number }>)[0]!.total
   }
@@ -236,8 +266,7 @@ export class PostgresBridge implements Bridge {
     options: QueryOptions,
   ): Promise<QueryResult<BridgeRow>> {
     const pool = this.assertPool()
-    const table = target
-    assertTableName(table)
+    const qualified = quoteTable(parseQualifiedTable(target))
 
     const selectClause = options.select
       ? options.select.map(quote).join(', ')
@@ -340,7 +369,7 @@ export class PostgresBridge implements Bridge {
     }
 
     const sql = [
-      `SELECT ${selectClause} FROM ${quote(table)}`,
+      `SELECT ${selectClause} FROM ${qualified}`,
       whereClause,
       orderByClause,
       limitClause,
@@ -350,7 +379,7 @@ export class PostgresBridge implements Bridge {
       .join(' ')
 
     // Get total count (with same WHERE, without LIMIT/OFFSET)
-    const countSql = `SELECT count(*)::int AS total FROM ${quote(table)} ${whereClause}`
+    const countSql = `SELECT count(*)::int AS total FROM ${qualified} ${whereClause}`
     const countParams = options.where ? params.slice(0, conditions.length) : []
 
     const [dataResult, countResult] = await Promise.all([
@@ -376,8 +405,7 @@ export class PostgresBridge implements Bridge {
     options: BatchReadOptions,
   ): Promise<BridgeRow[]> {
     const pool = this.assertPool()
-    const table = target
-    assertTableName(table)
+    const qualified = quoteTable(parseQualifiedTable(target))
 
     const selectClause =
       !options.select || options.select === '*'
@@ -463,7 +491,7 @@ export class PostgresBridge implements Bridge {
     }
 
     const sql = [
-      `SELECT ${selectClause} FROM ${quote(table)}`,
+      `SELECT ${selectClause} FROM ${qualified}`,
       whereClause,
       orderByClause,
       limitClause,
@@ -486,7 +514,8 @@ export class PostgresBridge implements Bridge {
 
   async introspectTarget(target: string): Promise<TargetSchema> {
     const pool = this.assertPool()
-    const info = await introspect(pool, target)
+    const parsed = parseQualifiedTable(target)
+    const info = await introspect(pool, parsed.table, parsed.schema)
     return {
       name: info.name,
       columns: info.columns,
@@ -503,8 +532,8 @@ export class PostgresBridge implements Bridge {
     return this.pool
   }
 
-  private async getPrimaryKey(table: string): Promise<string> {
-    const cached = this.pkCache.get(table)
+  private async getPrimaryKey(parsed: ParsedTable): Promise<string> {
+    const cached = this.pkCache.get(parsed.key)
     if (cached) return cached
 
     const pool = this.assertPool()
@@ -515,28 +544,29 @@ export class PostgresBridge implements Bridge {
          ON tc.constraint_name = kcu.constraint_name
          AND tc.table_schema = kcu.table_schema
        WHERE tc.constraint_type = 'PRIMARY KEY'
-         AND tc.table_name = $1
+         AND tc.table_schema = $1
+         AND tc.table_name = $2
        LIMIT 1`,
-      [table],
+      [parsed.schema, parsed.table],
     )
 
     const row = (result.rows as Array<{ column_name: string }>)[0]
     if (!row) {
       throw new Error(
-        `Could not detect primary key for table "${table}"`,
+        `Could not detect primary key for table "${parsed.key}"`,
       )
     }
-    this.pkCache.set(table, row.column_name)
+    this.pkCache.set(parsed.key, row.column_name)
     return row.column_name
   }
 
-  private async hasColumn(table: string, column: string): Promise<boolean> {
+  private async hasColumn(parsed: ParsedTable, column: string): Promise<boolean> {
     const pool = this.assertPool()
     const result = await pool.query(
       `SELECT 1 FROM information_schema.columns
-       WHERE table_name = $1 AND column_name = $2
+       WHERE table_schema = $1 AND table_name = $2 AND column_name = $3
        LIMIT 1`,
-      [table, column],
+      [parsed.schema, parsed.table, column],
     )
     return result.rowCount != null && result.rowCount > 0
   }
@@ -544,12 +574,6 @@ export class PostgresBridge implements Bridge {
 
 function quote(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`
-}
-
-function assertTableName(table: string): void {
-  if (!TABLE_NAME_RE.test(table)) {
-    throw new Error(`Invalid table name: "${table}"`)
-  }
 }
 
 type ResolvedSsl =
