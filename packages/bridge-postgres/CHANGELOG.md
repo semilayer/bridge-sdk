@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.0](https://github.com/semilayer/bridge-sdk/compare/bridge-postgres-v1.3.0...bridge-postgres-v1.4.0) (2026-04-24)
+
+
+### Features
+
+* **bridge-postgres:** default to IPv4-only DNS + 10s connect timeout ([e676785](https://github.com/semilayer/bridge-sdk/commit/e6767858c9839c6a5508e6ddf9b73f33b7efa1b7))
+* **bridge-postgres:** default to IPv4-only DNS + 10s connect timeout ([391f32c](https://github.com/semilayer/bridge-sdk/commit/391f32cbd49fc139c97a295b6ce43eed71c9dac6))
+
 ## [1.3.0](https://github.com/semilayer/bridge-sdk/compare/bridge-postgres-v1.2.0...bridge-postgres-v1.3.0) (2026-04-18)
 
 
