@@ -301,6 +301,50 @@ describe('PostgresBridge', () => {
         'Invalid table name',
       )
     })
+
+    it('rejects table names with more than one dot', async () => {
+      const bridge = await createConnectedBridge()
+
+      await expect(bridge.read('a.b.c')).rejects.toThrow(
+        'Invalid table name',
+      )
+    })
+
+    it('schema-qualified target: binds schema + table in PK lookup', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedPrimaryKey('id')
+      seedSelectResult([{ id: 1, name: 'a' }])
+      seedCountResult(1)
+
+      await bridge.read('analytics.events')
+
+      const pkCall = mockPoolQuery.mock.calls[0]!
+      // Both schema and table must be bound so PK detection doesn't fall
+      // through to "Could not detect primary key" on qualified names.
+      expect(pkCall[1]).toEqual(['analytics', 'events'])
+      expect(pkCall[0]).toContain('tc.table_schema = $1')
+      expect(pkCall[0]).toContain('tc.table_name = $2')
+
+      const selectCall = mockPoolQuery.mock.calls[1]!
+      expect(selectCall[0]).toContain('FROM "analytics"."events"')
+    })
+
+    it('unqualified target: defaults schema to public in PK lookup', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedPrimaryKey('id')
+      seedSelectResult([{ id: 1 }])
+      seedCountResult(1)
+
+      await bridge.read('items')
+
+      const pkCall = mockPoolQuery.mock.calls[0]!
+      expect(pkCall[1]).toEqual(['public', 'items'])
+
+      const selectCall = mockPoolQuery.mock.calls[1]!
+      expect(selectCall[0]).toContain('FROM "public"."items"')
+    })
   })
 
   describe('count()', () => {
