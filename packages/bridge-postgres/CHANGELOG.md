@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.1](https://github.com/semilayer/bridge-sdk/compare/bridge-postgres-v1.4.0...bridge-postgres-v1.4.1) (2026-04-24)
+
+
+### Bug Fixes
+
+* **bridge-postgres:** pre-resolve DNS to enforce ipFamily ([c3a6828](https://github.com/semilayer/bridge-sdk/commit/c3a68280878db3d748cf22ebec366545c0a40bf5))
+* **bridge-postgres:** pre-resolve DNS to enforce ipFamily ([5587591](https://github.com/semilayer/bridge-sdk/commit/558759153dc9de07776ae17938e0b671fc411472))
+
 ## [1.4.0](https://github.com/semilayer/bridge-sdk/compare/bridge-postgres-v1.3.0...bridge-postgres-v1.4.0) (2026-04-24)
 
 
