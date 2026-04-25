@@ -1,6 +1,6 @@
 {
   "lib/bridge-sdk": "1.2.0",
-  "lib/bridge-resolver": "1.3.4",
+  "lib/bridge-resolver": "1.3.5",
   "packages/bridge-postgres": "1.4.2",
   "packages/bridge-mysql": "1.2.1",
   "packages/bridge-sqlite": "1.2.0",
@@ -11,7 +11,7 @@
   "packages/bridge-planetscale": "1.1.0",
   "packages/bridge-d1": "1.1.0",
   "packages/bridge-supabase": "1.2.0",
-  "packages/bridge-mongodb": "1.1.0",
+  "packages/bridge-mongodb": "1.1.1",
   "packages/bridge-firestore": "1.1.0",
   "packages/bridge-redis": "1.1.0",
   "packages/bridge-upstash": "1.2.0",
