@@ -155,7 +155,10 @@ export class MysqlBridge implements Bridge {
 
     const sql = `SELECT ${selectClause} FROM ${backtickQuote(table)} ${whereClause} ORDER BY ${backtickQuote(pk)} ASC LIMIT ?`
 
-    const [allRowsRaw] = await pool.execute(sql, params as SqlParams)
+    // pool.query (not pool.execute) — mysql2's server-side prepared-statement
+    // path rejects JS numbers for LIMIT ? with "Incorrect arguments to
+    // mysqld_stmt_execute". See node-mysql2#1239.
+    const [allRowsRaw] = await pool.query(sql, params as SqlParams)
     const allRows = allRowsRaw as BridgeRow[]
 
     const hasMore = allRows.length > limit
@@ -320,9 +323,10 @@ export class MysqlBridge implements Bridge {
     const countSql = `SELECT COUNT(*) as total FROM ${backtickQuote(table)} ${whereClause}`
     const countParams = params.slice(0, whereParamCount)
 
+    // pool.query (not pool.execute) — see read() above for rationale.
     const [[dataRows], [countRows]] = await Promise.all([
-      pool.execute(querySql, params as SqlParams),
-      pool.execute(countSql, countParams as SqlParams),
+      pool.query(querySql, params as SqlParams),
+      pool.query(countSql, countParams as SqlParams),
     ])
 
     return {
@@ -403,8 +407,11 @@ export class MysqlBridge implements Bridge {
     if (cached) return cached
 
     const pool = this.assertPool()
+    // MySQL 8 returns information_schema column names in UPPERCASE
+    // (e.g. `COLUMN_NAME`) regardless of how the SELECT is written, so we
+    // alias explicitly to keep the row shape stable across versions.
     const [rows] = await pool.execute(
-      `SELECT column_name FROM information_schema.KEY_COLUMN_USAGE
+      `SELECT column_name AS column_name FROM information_schema.KEY_COLUMN_USAGE
        WHERE TABLE_NAME = ? AND TABLE_SCHEMA = DATABASE() AND CONSTRAINT_NAME = 'PRIMARY'
        ORDER BY ORDINAL_POSITION LIMIT 1`,
       [table],

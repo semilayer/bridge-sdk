@@ -1,0 +1,62 @@
+name: Integration – MySQL
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/bridge-mysql/**'
+      - '.github/workflows/integration-mysql.yml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: MySQL integration
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: testroot
+          MYSQL_DATABASE: testdb
+          MYSQL_USER: testuser
+          MYSQL_PASSWORD: testpass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -ptestroot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=30s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build bridge-mysql and its deps
+        run: pnpm turbo build --filter=@semilayer/bridge-mysql...
+
+      - name: Run integration tests
+        working-directory: packages/bridge-mysql
+        env:
+          DATABASE_URL: mysql://testuser:testpass@127.0.0.1:3306/testdb
+        run: pnpm test:integration

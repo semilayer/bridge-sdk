@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MysqlBridge } from './bridge.js'
 
 // ---------------------------------------------------------------------------
-// Mock mysql2/promise — separate pool.execute from getConnection
+// Mock mysql2/promise — pool.query / pool.execute both delegate to the same
+// shared mock so callers can mix-and-match (read() and query() use pool.query
+// to dodge the LIMIT-prepared-stmt footgun; introspection helpers still use
+// pool.execute).
 // ---------------------------------------------------------------------------
 
 const mockExecute = vi.fn()
@@ -17,6 +20,7 @@ vi.mock('mysql2/promise', () => ({
   default: {
     createPool: vi.fn(() => ({
       execute: mockExecute,
+      query: mockExecute,
       getConnection: mockGetConnection,
       end: mockEnd,
     })),
