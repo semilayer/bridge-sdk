@@ -18,6 +18,26 @@ export interface MongodbBridgeConfig {
   pool?: { min?: number; max?: number }
 }
 
+// Strict ISO 8601 — only coerce values that are unambiguously a date string
+// so we don't accidentally convert real string identifiers that happen to
+// parse as dates (e.g. "2024" → year 2024).
+const ISO_DATE_RE =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/
+
+function coerceMaybeDate(v: unknown): unknown {
+  if (typeof v === 'string' && ISO_DATE_RE.test(v)) {
+    const d = new Date(v)
+    if (!isNaN(d.getTime())) return d
+  }
+  return v
+}
+
+// $in (and similar array-valued operators) need element-wise coercion.
+function coerceMaybeDateDeep(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(coerceMaybeDate)
+  return coerceMaybeDate(v)
+}
+
 export class MongodbBridge implements Bridge {
   readonly capabilities: Partial<BridgeCapabilities> = {
     batchRead: true,
@@ -172,7 +192,10 @@ export class MongodbBridge implements Bridge {
             }
             const mongoOp = opMap[op]
             if (!mongoOp) throw new Error(`Unknown operator "${op}"`)
-            mapped[mongoOp] = val
+            // ISO date strings → BSON Date so comparisons against Date-typed
+            // fields actually match. Without this, $gt: '2026-04-25T...' vs a
+            // BSON Date field silently returns zero rows.
+            mapped[mongoOp] = coerceMaybeDateDeep(val)
           }
           filter[field] = mapped
         } else {
