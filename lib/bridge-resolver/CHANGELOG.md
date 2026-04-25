@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.4](https://github.com/semilayer/bridge-sdk/compare/bridge-resolver-v1.3.3...bridge-resolver-v1.3.4) (2026-04-25)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @semilayer/bridge-mysql bumped to 1.2.1
+
 ## [1.3.3](https://github.com/semilayer/bridge-sdk/compare/bridge-resolver-v1.3.2...bridge-resolver-v1.3.3) (2026-04-24)
 
 
