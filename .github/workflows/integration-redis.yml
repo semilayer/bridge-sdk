@@ -1,0 +1,58 @@
+name: Integration – Redis
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/bridge-redis/**'
+      - 'lib/bridge-sdk/**'
+      - '.github/workflows/integration-redis.yml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: Redis integration
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=10s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build bridge-redis and its deps
+        run: pnpm turbo build --filter=@semilayer/bridge-redis...
+
+      - name: Run integration tests
+        working-directory: packages/bridge-redis
+        env:
+          REDIS_URL: redis://127.0.0.1:6379
+        run: pnpm test:integration

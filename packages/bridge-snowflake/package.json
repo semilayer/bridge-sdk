@@ -44,10 +44,10 @@
   "dependencies": {
     "@semilayer/core": "^0.1.7",
     "snowflake-sdk": "^1.14.0",
-    "@types/snowflake-sdk": "^1.6.0"
+    "@types/snowflake-sdk": "^1.6.0",
+    "@semilayer/bridge-sdk": "workspace:*"
   },
   "devDependencies": {
-    "@semilayer/bridge-sdk": "workspace:*",
     "@types/node": "^22.0.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",

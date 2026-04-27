@@ -43,10 +43,10 @@
   },
   "dependencies": {
     "@semilayer/core": "^0.1.7",
-    "better-sqlite3": "^11.0.0"
+    "better-sqlite3": "^11.0.0",
+    "@semilayer/bridge-sdk": "workspace:*"
   },
   "devDependencies": {
-    "@semilayer/bridge-sdk": "workspace:*",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
     "tsup": "^8.0.0",

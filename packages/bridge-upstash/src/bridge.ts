@@ -11,6 +11,14 @@ import type {
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
+import {
+  streamingAggregate,
+  STREAMING_AGGREGATE_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 export interface UpstashBridgeConfig {
   url: string
@@ -208,5 +216,20 @@ export class UpstashBridge implements Bridge {
     if (opts.limit) rows = rows.slice(0, opts.limit)
 
     return { rows, total }
+  }
+
+  /**
+   * Aggregate via streaming reducer. Upstash is HTTP-fronted Redis —
+   * no native group-by; the bridge reduces in memory after `query()`.
+   */
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return STREAMING_AGGREGATE_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    return streamingAggregate(this, opts)
   }
 }

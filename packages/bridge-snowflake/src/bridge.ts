@@ -11,6 +11,16 @@ import type {
   ReadResult,
   TargetSchema,
 } from '@semilayer/core'
+import {
+  buildAggregateSql,
+  executeAggregateQueries,
+  SNOWFLAKE_DIALECT,
+  SNOWFLAKE_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 // Suppress noisy SDK log output
 snowflake.configure({ logLevel: 'ERROR' })
@@ -234,6 +244,24 @@ export class SnowflakeBridge implements Bridge {
       limit: options.limit,
     })
     return result.rows
+  }
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return SNOWFLAKE_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const conn = this.assertConn()
+    return executeAggregateQueries(
+      buildAggregateSql(opts, SNOWFLAKE_DIALECT),
+      async (sql, params) => {
+        const rows = await executeQuery(conn, sql, params as snowflake.Bind[])
+        return rows
+      },
+    )
   }
 
   async query(

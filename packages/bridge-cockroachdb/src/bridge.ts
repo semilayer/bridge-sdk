@@ -12,6 +12,16 @@ import type {
   TargetColumnInfo,
   TargetSchema,
 } from '@semilayer/core'
+import {
+  buildAggregateSql,
+  executeAggregateQueries,
+  POSTGRES_DIALECT,
+  POSTGRES_FAMILY_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
 
@@ -165,6 +175,24 @@ export class CockroachdbBridge implements Bridge {
       this.pool = null
     }
     this.pkCache.clear()
+  }
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return POSTGRES_FAMILY_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const pool = this.assertPool()
+    return executeAggregateQueries(
+      buildAggregateSql(opts, POSTGRES_DIALECT),
+      async (sql, params) => {
+        const result = await pool.query(sql, params as unknown[])
+        return result.rows as Array<Record<string, unknown>>
+      },
+    )
   }
 
   async batchRead(

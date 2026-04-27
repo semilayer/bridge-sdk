@@ -10,6 +10,14 @@ import type {
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
+import {
+  streamingAggregate,
+  STREAMING_AGGREGATE_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 export interface CassandraBridgeConfig {
   contactPoints: string[]
@@ -288,5 +296,23 @@ export class CassandraBridge implements Bridge {
       return obj
     })
     return { rows, total: rows.length }
+  }
+
+  /**
+   * Aggregate via streaming reducer. Cassandra's CQL supports GROUP BY
+   * only on partition keys, which is too restrictive to be useful as a
+   * general aggregate path. Streaming via `query()` lets the bridge
+   * apply WHERE on partition + clustering keys at the source, then
+   * reduces in memory.
+   */
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return STREAMING_AGGREGATE_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    return streamingAggregate(this, opts)
   }
 }

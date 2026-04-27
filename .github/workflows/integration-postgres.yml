@@ -1,0 +1,62 @@
+name: Integration – Postgres
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/bridge-postgres/**'
+      - 'lib/bridge-sdk/**'
+      - '.github/workflows/integration-postgres.yml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: Postgres integration
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U testuser -d testdb"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=20s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build bridge-postgres and its deps
+        run: pnpm turbo build --filter=@semilayer/bridge-postgres...
+
+      - name: Run integration tests
+        working-directory: packages/bridge-postgres
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@127.0.0.1:5432/testdb
+        run: pnpm test:integration

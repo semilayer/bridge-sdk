@@ -10,6 +10,16 @@ import type {
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
+import {
+  buildAggregateSql,
+  executeAggregateQueries,
+  SQLITE_DIALECT,
+  SQLITE_FAMILY_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
 
@@ -117,6 +127,24 @@ export class TursoBridge implements Bridge {
     assertTableName(target)
     const rows = await this.run(`SELECT count(*) as total FROM ${quote(target)}`)
     return rows[0]!['total'] as number
+  }
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return SQLITE_FAMILY_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const client = this.assertClient()
+    return executeAggregateQueries(
+      buildAggregateSql(opts, SQLITE_DIALECT),
+      async (sql, params) => {
+        const result = await client.execute({ sql, args: params as InValue[] })
+        return result.rows as unknown as Array<Record<string, unknown>>
+      },
+    )
   }
 
   async batchRead(

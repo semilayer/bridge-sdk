@@ -17,6 +17,16 @@ import type {
   ReadResult,
   TargetSchema,
 } from '@semilayer/core'
+import {
+  buildAggregateSql,
+  executeAggregateQueries,
+  DUCKDB_DIALECT,
+  DUCKDB_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 type DuckDB = typeof DuckDBTypes
 
@@ -226,6 +236,24 @@ export class DuckdbBridge implements Bridge {
       limit: options.limit,
     })
     return result.rows
+  }
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return DUCKDB_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const conn = this.assertConn()
+    return executeAggregateQueries(
+      buildAggregateSql(opts, DUCKDB_DIALECT),
+      async (sql, params) => {
+        const rows = await allRows(conn, sql, params as unknown[])
+        return rows as Array<Record<string, unknown>>
+      },
+    )
   }
 
   async query(

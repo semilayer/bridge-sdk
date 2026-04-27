@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { Bridge, BridgeRow } from '@semilayer/core'
 import { resolveBridgeCapabilities } from '@semilayer/core'
+import { runAggregateCompliance } from './aggregate-suite.js'
 
 export interface BridgeTestSuiteOptions {
   factory: () => Bridge
@@ -11,6 +12,16 @@ export interface BridgeTestSuiteOptions {
   }
   beforeSeed?: (bridge: Bridge) => Promise<void>
   afterCleanup?: (bridge: Bridge) => Promise<void>
+  /**
+   * Optional: a separate target seeded with the canonical aggregate
+   * fixture (`aggregateFixture()`). When provided AND the bridge
+   * declares `aggregateCapabilities().supports = true`, the universal
+   * 30-case aggregate compliance suite runs against this target.
+   *
+   * Bridges that can't host the rich fixture (extra columns, dates)
+   * may omit this — the aggregate suite is then skipped.
+   */
+  aggregateFixtureTarget?: string
 }
 
 export function createBridgeTestSuite(opts: BridgeTestSuiteOptions): void {
@@ -134,6 +145,18 @@ export function createBridgeTestSuite(opts: BridgeTestSuiteOptions): void {
     // run only against bridges that declare the capability — bridges
     // that explicitly opt out are skipped rather than failed so we can
     // test graceful-degradation paths against the same harness.
+
+    if (opts.aggregateFixtureTarget) {
+      const probe = opts.factory()
+      const probeCaps = probe.aggregateCapabilities?.()
+      if (probeCaps && probeCaps.supports) {
+        runAggregateCompliance({
+          getBridge: () => bridge,
+          target: opts.aggregateFixtureTarget,
+          capabilities: probeCaps,
+        })
+      }
+    }
 
     describe('batchRead() support', () => {
       it('skips if capabilities.batchRead is false', async () => {
