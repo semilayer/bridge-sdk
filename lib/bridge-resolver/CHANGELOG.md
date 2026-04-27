@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.4.0](https://github.com/semilayer/bridge-sdk/compare/bridge-resolver-v1.3.5...bridge-resolver-v1.4.0) (2026-04-27)
+
+
+### Features
+
+* **bridges:** aggregate facet across all 23 bridges ([a70ee78](https://github.com/semilayer/bridge-sdk/commit/a70ee781344295abcf55407d528103408c959bcc))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @semilayer/bridge-postgres bumped to 1.5.0
+    * @semilayer/bridge-mysql bumped to 1.3.0
+    * @semilayer/bridge-sqlite bumped to 1.3.0
+    * @semilayer/bridge-mssql bumped to 1.3.0
+    * @semilayer/bridge-cockroachdb bumped to 1.3.0
+    * @semilayer/bridge-neon bumped to 1.3.0
+    * @semilayer/bridge-turso bumped to 1.3.0
+    * @semilayer/bridge-planetscale bumped to 1.2.0
+    * @semilayer/bridge-d1 bumped to 1.2.0
+    * @semilayer/bridge-supabase bumped to 1.3.0
+    * @semilayer/bridge-mongodb bumped to 1.2.0
+    * @semilayer/bridge-firestore bumped to 1.2.0
+    * @semilayer/bridge-redis bumped to 1.2.0
+    * @semilayer/bridge-upstash bumped to 1.3.0
+    * @semilayer/bridge-dynamodb bumped to 1.2.0
+    * @semilayer/bridge-elasticsearch bumped to 1.2.0
+    * @semilayer/bridge-cassandra bumped to 1.2.0
+    * @semilayer/bridge-clickhouse bumped to 1.2.0
+    * @semilayer/bridge-bigquery bumped to 1.2.0
+    * @semilayer/bridge-duckdb bumped to 1.2.0
+    * @semilayer/bridge-snowflake bumped to 1.2.0
+    * @semilayer/bridge-mariadb bumped to 1.2.0
+    * @semilayer/bridge-oracle bumped to 1.2.0
+
 ## [1.3.5](https://github.com/semilayer/bridge-sdk/compare/bridge-resolver-v1.3.4...bridge-resolver-v1.3.5) (2026-04-25)
 
 
