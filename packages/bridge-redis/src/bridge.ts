@@ -11,6 +11,14 @@ import type {
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
+import {
+  streamingAggregate,
+  STREAMING_AGGREGATE_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 export interface RedisBridgeConfig {
   url?: string
@@ -222,5 +230,21 @@ export class RedisBridge implements Bridge {
     if (opts.offset) rows = rows.slice(opts.offset)
     if (opts.limit) rows = rows.slice(0, opts.limit)
     return { rows, total }
+  }
+
+  /**
+   * Aggregate via streaming reducer. Redis is a key-value store with no
+   * native group-by; the bridge reduces in memory after `query()`
+   * fetches the matching set of values.
+   */
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return STREAMING_AGGREGATE_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    return streamingAggregate(this, opts)
   }
 }

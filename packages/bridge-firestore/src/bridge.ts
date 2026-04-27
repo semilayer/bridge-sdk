@@ -11,6 +11,14 @@ import type {
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
+import {
+  streamingAggregate,
+  STREAMING_AGGREGATE_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 export interface FirestoreBridgeConfig {
   projectId: string
@@ -212,5 +220,22 @@ export class FirestoreBridge implements Bridge {
       rows: snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as BridgeRow[],
       total: snapshot.size,
     }
+  }
+
+  /**
+   * Aggregate via streaming reducer. Firestore has limited native
+   * aggregation (`count()`/`sum()`/`avg()` only at the collection
+   * level, no group-by) — streaming with `query()` pre-filtering at
+   * the source is the right fit.
+   */
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return STREAMING_AGGREGATE_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    return streamingAggregate(this, opts)
   }
 }

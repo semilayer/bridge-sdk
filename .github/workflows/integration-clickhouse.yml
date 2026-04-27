@@ -1,0 +1,64 @@
+name: Integration – ClickHouse
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/bridge-clickhouse/**'
+      - 'lib/bridge-sdk/**'
+      - '.github/workflows/integration-clickhouse.yml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: ClickHouse integration
+    runs-on: ubuntu-latest
+
+    services:
+      clickhouse:
+        # The :24-alpine variant hangs on GitHub-hosted runners because
+        # the default seccomp profile blocks `get_mempolicy`, which
+        # jemalloc calls on every startup tick — clickhouse never
+        # finishes initializing. Service containers don't accept
+        # `--security-opt seccomp=unconfined`, so we use the regular
+        # Ubuntu-based image where jemalloc is configured differently.
+        image: clickhouse/clickhouse-server:24
+        ports:
+          - 8123:8123
+        options: >-
+          --health-cmd="wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+          --health-start-period=30s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build bridge-clickhouse and its deps
+        run: pnpm turbo build --filter=@semilayer/bridge-clickhouse...
+
+      - name: Run integration tests
+        working-directory: packages/bridge-clickhouse
+        env:
+          CLICKHOUSE_URL: http://default:@127.0.0.1:8123/default
+        run: pnpm test:integration

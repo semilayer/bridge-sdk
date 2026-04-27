@@ -11,6 +11,14 @@ import type {
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
+import {
+  streamingAggregate,
+  STREAMING_AGGREGATE_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 export interface ElasticsearchBridgeConfig {
   node: string
@@ -248,5 +256,29 @@ export class ElasticsearchBridge implements Bridge {
     const totalObj = result.hits.total
     const total = typeof totalObj === 'number' ? totalObj : totalObj?.value
     return { rows, total }
+  }
+
+  /**
+   * Aggregate via the shared streaming reducer. Elasticsearch's native
+   * aggregations DSL (`terms` / `date_histogram` / `composite` /
+   * `cardinality` / `percentiles`) is rich enough to deserve a future
+   * native adapter — but the v1 path delegates to `streamingAggregate`,
+   * which still pre-filters via `bridge.query()` (translating
+   * `candidatesWhere` into an ES bool/filter clause) and reduces in
+   * memory. Real bytes-on-the-wire win over service-side streaming
+   * since ES applies the filter at the index, not after.
+   *
+   * Future native pushdown can emit a `composite` agg with one source
+   * per dim + sub-aggs per measure.
+   */
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return STREAMING_AGGREGATE_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    return streamingAggregate(this, opts)
   }
 }

@@ -10,6 +10,16 @@ import type {
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
+import {
+  buildAggregateSql,
+  executeAggregateQueries,
+  MYSQL_DIALECT,
+  MYSQL_FAMILY_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
 
@@ -137,6 +147,24 @@ export class PlanetscaleBridge implements Bridge {
       [],
     )
     return (result.rows as Array<{ total: number }>)[0]!.total
+  }
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return MYSQL_FAMILY_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const conn = this.assertConn()
+    return executeAggregateQueries(
+      buildAggregateSql(opts, MYSQL_DIALECT),
+      async (sql, params) => {
+        const result = await conn.execute(sql, params as unknown[])
+        return result.rows as Array<Record<string, unknown>>
+      },
+    )
   }
 
   async batchRead(
