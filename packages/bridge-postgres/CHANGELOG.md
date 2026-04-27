@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.5.0](https://github.com/semilayer/bridge-sdk/compare/bridge-postgres-v1.4.2...bridge-postgres-v1.5.0) (2026-04-27)
+
+
+### Features
+
+* **bridges:** aggregate facet across all 23 bridges ([a70ee78](https://github.com/semilayer/bridge-sdk/commit/a70ee781344295abcf55407d528103408c959bcc))
+* **bridges:** aggregate facet across all 23 bridges ([d646f91](https://github.com/semilayer/bridge-sdk/commit/d646f91e9140a445ad878d3f52a8241ddd518224))
+
+
+### Bug Fixes
+
+* **bridge-mongodb:** coerce ISO date strings to Date in query() operators ([998fa71](https://github.com/semilayer/bridge-sdk/commit/998fa71c6ba3a3a1c683c9001459b31d69509684))
+* **bridge-mysql:** pool.query for LIMIT + alias info_schema columns ([4b8b1db](https://github.com/semilayer/bridge-sdk/commit/4b8b1dbcd155f9dec223dfc04f8fcc88d7279ad1))
+* **bridges:** nip CI integration failures ([aeff643](https://github.com/semilayer/bridge-sdk/commit/aeff6432051926fc3b1903497de1ddcc571b9efd))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @semilayer/bridge-sdk bumped to 1.3.0
+
 ## [1.4.2](https://github.com/semilayer/bridge-sdk/compare/bridge-postgres-v1.4.1...bridge-postgres-v1.4.2) (2026-04-24)
 
 
