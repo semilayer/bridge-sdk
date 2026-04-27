@@ -13,8 +13,13 @@ export type {
 export { DEFAULT_BRIDGE_CAPABILITIES, resolveBridgeCapabilities } from '@semilayer/core'
 
 export { MockBridge } from './mock-bridge.js'
-export { createBridgeTestSuite } from './test-suite.js'
-export type { BridgeTestSuiteOptions } from './test-suite.js'
+
+// Test-harness exports (createBridgeTestSuite, runAggregateCompliance,
+// aggregateFixture, etc.) live in a separate entry point —
+// `@semilayer/bridge-sdk/testing` — to keep `vitest` out of the runtime
+// bundle path. Importing vitest from a non-test runtime crashes at
+// module evaluation; bridges depend on this entry at runtime for
+// dialect helpers + types so it must stay vitest-free.
 
 // ─── Aggregate surface ───────────────────────────────────────────────
 export type {
@@ -56,6 +61,7 @@ export type {
 
 export {
   POSTGRES_DIALECT,
+  COCKROACH_DIALECT,
   MYSQL_DIALECT,
   SQLITE_DIALECT,
   MSSQL_DIALECT,
@@ -65,6 +71,7 @@ export {
   ORACLE_DIALECT,
   DUCKDB_DIALECT,
   POSTGRES_FAMILY_CAPABILITIES,
+  COCKROACH_CAPABILITIES,
   MYSQL_FAMILY_CAPABILITIES,
   SQLITE_FAMILY_CAPABILITIES,
   MSSQL_CAPABILITIES,
@@ -75,13 +82,3 @@ export {
   DUCKDB_CAPABILITIES,
 } from './sql-dialects.js'
 
-export {
-  runAggregateCompliance,
-  aggregateFixture,
-  fixtureToBridgeRows,
-  collect as collectAggregateStream,
-} from './aggregate-suite.js'
-export type {
-  AggregateSuiteOptions,
-  AggregateFixtureRow,
-} from './aggregate-suite.js'

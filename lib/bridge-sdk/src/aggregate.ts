@@ -27,9 +27,9 @@ export type AnalyzeTimeBucket =
   | 'year'
 
 /**
- * Bucket strategies a dim can request. Geo + semantic buckets are reserved
- * (Phase G in the parent plan) — bridges may declare support but the v1
- * compliance suite does not exercise them.
+ * Bucket strategies a dim can request. Geo + semantic buckets are
+ * reserved — bridges may declare support but the compliance suite
+ * does not currently exercise them.
  */
 export type DimensionBucket =
   | AnalyzeTimeBucket
@@ -103,7 +103,7 @@ export interface AggregateOptions {
  * `sketches` is optional: bridges that compute approximate measures via
  * sketches (e.g. ClickHouse `uniqCombined64`) MAY emit serialized sketch
  * state alongside the final value so the live-tail engine can merge
- * deltas without recomputing. v1 leaves this empty — v2 will exercise it.
+ * deltas without recomputing.
  */
 export interface AggregateRow {
   dims: Record<string, unknown>

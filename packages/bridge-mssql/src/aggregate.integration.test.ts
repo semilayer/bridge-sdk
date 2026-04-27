@@ -9,11 +9,8 @@ import mssqlLib from 'mssql'
 import type { ConnectionPool, config as MssqlConfig } from 'mssql'
 import { describe, beforeAll, afterAll } from 'vitest'
 import { MssqlBridge } from './bridge.js'
-import {
-  aggregateFixture,
-  MSSQL_CAPABILITIES,
-  runAggregateCompliance,
-} from '@semilayer/bridge-sdk'
+import { MSSQL_CAPABILITIES } from '@semilayer/bridge-sdk'
+import { aggregateFixture, runAggregateCompliance } from '@semilayer/bridge-sdk/testing'
 
 const DATABASE_URL = process.env['DATABASE_URL']
 const TABLE = 'sl_agg_fixture'
@@ -23,7 +20,17 @@ describe.skipIf(!DATABASE_URL)('MssqlBridge aggregate integration', () => {
   let bridge: MssqlBridge
 
   beforeAll(async () => {
-    setup = await mssqlLib.connect(DATABASE_URL! as unknown as MssqlConfig)
+    // mssqlLib.connect(string) does not natively parse mssql:// URLs in
+    // v11 — feed it a config object instead.
+    const u = new URL(DATABASE_URL!)
+    setup = await mssqlLib.connect({
+      server: u.hostname,
+      port: u.port ? parseInt(u.port, 10) : 1433,
+      user: decodeURIComponent(u.username),
+      password: decodeURIComponent(u.password),
+      database: u.pathname.replace(/^\//, '') || 'master',
+      options: { encrypt: false, trustServerCertificate: true },
+    } as unknown as MssqlConfig)
 
     await setup.request().query(`IF OBJECT_ID('${TABLE}', 'U') IS NOT NULL DROP TABLE [${TABLE}]`)
     await setup.request().query(`
@@ -58,11 +65,14 @@ describe.skipIf(!DATABASE_URL)('MssqlBridge aggregate integration', () => {
   })
 
   afterAll(async () => {
-    await bridge?.disconnect()
+    // mssql's `connect()` returns the global pool — bridge.disconnect()
+    // would close it out from under our `setup` handle, so drop the
+    // table first while both still point at a live pool.
     if (setup) {
       await setup.request().query(`IF OBJECT_ID('${TABLE}', 'U') IS NOT NULL DROP TABLE [${TABLE}]`)
       await setup.close()
     }
+    await bridge?.disconnect()
   })
 
   runAggregateCompliance({

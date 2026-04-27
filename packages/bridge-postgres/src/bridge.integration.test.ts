@@ -10,12 +10,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import pg from 'pg'
 import { PostgresBridge } from './bridge.js'
+import { POSTGRES_FAMILY_CAPABILITIES } from '@semilayer/bridge-sdk'
 import {
   aggregateFixture,
   collectAggregateStream as collect,
-  POSTGRES_FAMILY_CAPABILITIES,
   runAggregateCompliance,
-} from '@semilayer/bridge-sdk'
+} from '@semilayer/bridge-sdk/testing'
 
 const DATABASE_URL = process.env['DATABASE_URL']
 const TABLE = 'sl_agg_fixture'

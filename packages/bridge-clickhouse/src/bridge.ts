@@ -236,14 +236,32 @@ export class ClickhouseBridge implements Bridge {
     return executeAggregateQueries(
       buildAggregateSql(opts, CLICKHOUSE_DIALECT),
       async (sql, params) => {
-        // Convert positional array → ClickHouse named-param object.
-        // Dialect emits {p1:String}, {p2:String}, ... so we key by p1, p2.
+        // ClickHouse requires typed placeholders ({p1:UInt32}, {p1:String},
+        // ...). The dialect emits everything as `{pN:String}` because it
+        // doesn't see the param values at SQL-build time. Re-type each
+        // placeholder here based on the JS value's runtime type — numbers
+        // (notably the LIMIT param) need UInt32/Float64, booleans need
+        // UInt8, everything else stays String.
+        let typedSql = sql
         const queryParams: Record<string, unknown> = {}
         ;(params as unknown[]).forEach((v, i) => {
-          queryParams[`p${i + 1}`] = v
+          const name = `p${i + 1}`
+          let chType = 'String'
+          if (typeof v === 'number') {
+            chType = Number.isInteger(v) ? 'Int64' : 'Float64'
+          } else if (typeof v === 'boolean') {
+            chType = 'UInt8'
+          } else if (v instanceof Date) {
+            chType = 'DateTime64(3)'
+          }
+          typedSql = typedSql.replace(
+            new RegExp(`\\{${name}:String\\}`, 'g'),
+            `{${name}:${chType}}`,
+          )
+          queryParams[name] = v instanceof Date ? v.toISOString() : v
         })
         const resultSet = await client.query({
-          query: sql,
+          query: typedSql,
           query_params: queryParams,
           format: 'JSONEachRow',
         })

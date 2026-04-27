@@ -58,5 +58,10 @@ jobs:
       - name: Run integration tests
         working-directory: packages/bridge-mssql
         env:
-          DATABASE_URL: 'Server=localhost,1433;Database=master;User Id=SA;Password=YourStrong!Passw0rd;Encrypt=false;TrustServerCertificate=true'
+          # MssqlBridge calls `new URL(url)` to parse the connection
+          # string, so this must be a real URL (not the ADO.NET-style
+          # `Server=...;Database=...` form). The `!` in the password is
+          # url-safe and goes through unescaped; Encrypt + trust flags
+          # are bridge-config defaults so we don't need them in the URL.
+          DATABASE_URL: 'mssql://SA:YourStrong!Passw0rd@localhost:1433/master'
         run: pnpm test:integration

@@ -13,10 +13,7 @@ import { MongoClient } from 'mongodb'
 import { describe, beforeAll, afterAll } from 'vitest'
 import { MongodbBridge } from './bridge.js'
 import { MONGODB_AGGREGATE_CAPABILITIES } from './aggregate.js'
-import {
-  aggregateFixture,
-  runAggregateCompliance,
-} from '@semilayer/bridge-sdk'
+import { aggregateFixture, runAggregateCompliance } from '@semilayer/bridge-sdk/testing'
 
 const DATABASE_URL = process.env['DATABASE_URL']
 const COLLECTION = 'sl_agg_fixture'

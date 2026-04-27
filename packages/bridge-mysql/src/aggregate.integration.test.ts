@@ -5,11 +5,8 @@
 import mysql from 'mysql2/promise'
 import { describe, beforeAll, afterAll } from 'vitest'
 import { MysqlBridge } from './bridge.js'
-import {
-  aggregateFixture,
-  MYSQL_FAMILY_CAPABILITIES,
-  runAggregateCompliance,
-} from '@semilayer/bridge-sdk'
+import { MYSQL_FAMILY_CAPABILITIES } from '@semilayer/bridge-sdk'
+import { aggregateFixture, runAggregateCompliance } from '@semilayer/bridge-sdk/testing'
 
 const DATABASE_URL = process.env['DATABASE_URL']
 const TABLE = 'sl_agg_fixture'

@@ -7,11 +7,8 @@
 import Redis from 'ioredis'
 import { describe, beforeAll, afterAll } from 'vitest'
 import { RedisBridge } from './bridge.js'
-import {
-  aggregateFixture,
-  STREAMING_AGGREGATE_CAPABILITIES,
-  runAggregateCompliance,
-} from '@semilayer/bridge-sdk'
+import { STREAMING_AGGREGATE_CAPABILITIES } from '@semilayer/bridge-sdk'
+import { aggregateFixture, runAggregateCompliance } from '@semilayer/bridge-sdk/testing'
 
 const REDIS_URL = process.env['REDIS_URL']
 const PREFIX = 'sl_agg_fixture'

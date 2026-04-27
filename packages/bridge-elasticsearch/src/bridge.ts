@@ -268,8 +268,8 @@ export class ElasticsearchBridge implements Bridge {
    * memory. Real bytes-on-the-wire win over service-side streaming
    * since ES applies the filter at the index, not after.
    *
-   * Native pushdown (Phase 2): emit a `composite` agg with one source
-   * per dim + sub-aggs per measure. ETA after the v1 ships.
+   * Future native pushdown can emit a `composite` agg with one source
+   * per dim + sub-aggs per measure.
    */
   aggregateCapabilities(): BridgeAggregateCapabilities {
     return STREAMING_AGGREGATE_CAPABILITIES

@@ -34,6 +34,24 @@ export const POSTGRES_FAMILY_CAPABILITIES: BridgeAggregateCapabilities = {
 }
 
 /**
+ * CockroachDB — wire-compatible with Postgres but with two relevant
+ * differences:
+ *   1. `TABLESAMPLE BERNOULLI(...)` is not supported (Cockroach only
+ *      accepts `TABLESAMPLE SYSTEM(...)` since v23, and even that has
+ *      limitations). Easiest is to declare sampling unsupported and
+ *      let the planner reject sampling requests up-front.
+ *   2. `percentile_cont(p) WITHIN GROUP (ORDER BY col)` requires the
+ *      ORDER BY column to be FLOAT8 — DECIMAL/INT/etc. fail with
+ *      `unknown signature: percentile_cont_impl(decimal, int)`. The
+ *      `COCKROACH_DIALECT` casts the column to `FLOAT8` so the right
+ *      overload resolves.
+ */
+export const COCKROACH_CAPABILITIES: BridgeAggregateCapabilities = {
+  ...POSTGRES_FAMILY_CAPABILITIES,
+  sampling: false,
+}
+
+/**
  * MySQL 8 / MariaDB 11 / PlanetScale: identifier backticks, `?`
  * placeholders, no percentile_cont as a regular aggregate, no native
  * sampling. Time-bucketing via DATE_FORMAT loses Date type for ORDER BY
@@ -89,13 +107,21 @@ export const MSSQL_CAPABILITIES: BridgeAggregateCapabilities = {
   sum: true,
   avg: true,
   minMax: true,
-  // PERCENTILE_CONT in MSSQL is a window fn — not a regular aggregate,
-  // so leaving false here keeps the SQL simple. Planner falls back.
+  // PERCENTILE_CONT in MSSQL is a window function, not a regular
+  // aggregate — leaving this false keeps the SQL simple and the
+  // planner falls back.
   percentile: false,
   topK: true,
   havingOnAggregates: true,
-  pushdownOrderLimit: true,
-  sampling: true,
+  // MSSQL has no `LIMIT` — it uses `TOP N` or `OFFSET/FETCH`. Until
+  // the dialect grows a `limitClause` hook, declare pushdown
+  // unsupported so the planner pulls full results and trims
+  // client-side.
+  pushdownOrderLimit: false,
+  // `TABLESAMPLE (P PERCENT)` in MSSQL samples at the page level,
+  // which on small tables routinely returns zero rows. Declare
+  // unsupported until we can fall back to a row-level random filter.
+  sampling: false,
   emitsSketches: false,
 }
 
@@ -210,6 +236,23 @@ export const POSTGRES_DIALECT: SqlAggregateDialect = {
   sample: (r) =>
     r > 0 && r < 1 ? `TABLESAMPLE BERNOULLI(${Math.max(0, Math.min(100, r * 100))})` : null,
   supportsFilter: true,
+}
+
+/**
+ * CockroachDB dialect — wire-compatible with Postgres, but `TABLESAMPLE
+ * BERNOULLI(...)` is rejected and `percentile_cont` requires FLOAT8 for
+ * the ORDER BY column. See `COCKROACH_CAPABILITIES` for the matching
+ * capability declaration.
+ */
+export const COCKROACH_DIALECT: SqlAggregateDialect = {
+  ...POSTGRES_DIALECT,
+  // FLOAT8 cast on the ORDER BY column — Cockroach has no
+  // percentile_cont overload for decimal/int.
+  percentile: (e, p) => `percentile_cont(${p}) WITHIN GROUP (ORDER BY (${e})::FLOAT8)`,
+  // No native TABLESAMPLE BERNOULLI — declare unsupported. The planner
+  // will reject sampling requests; bridges that *do* want sampling on
+  // Cockroach can override this dialect with a custom rewrite.
+  sample: () => null,
 }
 
 /**

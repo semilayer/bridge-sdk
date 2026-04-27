@@ -9,7 +9,7 @@
  *   - `date_trunc` / `DATE_TRUNC` / `toStartOf*` (ClickHouse) etc.
  *   - percentile syntax (`percentile_cont` vs `quantile()` vs `APPROX_PERCENTILE`)
  *   - sampling (`TABLESAMPLE BERNOULLI(p)` vs `SAMPLE p` vs `WHERE rand() < p`)
- *   - top-K shape (separate query in v1 — see §6.3 of the parent plan)
+ *   - top-K shape (separate query — stitched in `decodeRow()`)
  *
  * Every shaping decision lives in this file so adding a new SQL bridge
  * is just authoring a `SqlAggregateDialect`.
