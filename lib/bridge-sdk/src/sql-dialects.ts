@@ -326,11 +326,11 @@ export const SQLITE_DIALECT: SqlAggregateDialect = {
   percentile: () => {
     throw new Error('SQLite has no native percentile_cont')
   },
-  firstLast: (kind, col, ts) => {
+  firstLast: (kind, col, _ts) => {
     // SQLite has no array_agg or window-aggregate. Fall back: take MIN/MAX
-    // of `col` ordered by ts via a subquery — bridges that need accurate
-    // first/last should declare percentile-style fallback. This default
-    // returns col ordered by ts which is okay for monotonic ts.
+    // of `col` — bridges that need accurate first/last should declare
+    // percentile-style fallback. This default is okay when col itself is
+    // monotonic with the change-tracking column.
     return kind === 'first' ? `MIN(${col})` : `MAX(${col})`
   },
 }
