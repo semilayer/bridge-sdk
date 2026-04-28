@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.2.0](https://github.com/semilayer/bridge-sdk/compare/bridge-mongodb-v1.1.1...bridge-mongodb-v1.2.0) (2026-04-27)
+
+
+### Features
+
+* **bridges:** aggregate facet across all 23 bridges ([a70ee78](https://github.com/semilayer/bridge-sdk/commit/a70ee781344295abcf55407d528103408c959bcc))
+* **bridges:** aggregate facet across all 23 bridges ([d646f91](https://github.com/semilayer/bridge-sdk/commit/d646f91e9140a445ad878d3f52a8241ddd518224))
+
+
+### Bug Fixes
+
+* **bridges:** clear lint warnings — drop unused formatTimeBucket import in mongo aggregate, drop stale prefer-const disable in duckdb, mark unused ts arg in sqlite firstLast ([4e25afc](https://github.com/semilayer/bridge-sdk/commit/4e25afc7d1087f108bcf8c0efc7ab913511f5f97))
+* **bridges:** nip CI integration failures ([aeff643](https://github.com/semilayer/bridge-sdk/commit/aeff6432051926fc3b1903497de1ddcc571b9efd))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @semilayer/bridge-sdk bumped to 1.3.0
+
 ## [1.1.1](https://github.com/semilayer/bridge-sdk/compare/bridge-mongodb-v1.1.0...bridge-mongodb-v1.1.1) (2026-04-25)
 
 
