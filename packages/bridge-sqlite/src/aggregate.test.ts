@@ -5,11 +5,8 @@
 import { describe, beforeAll, afterAll } from 'vitest'
 import Database from 'better-sqlite3'
 import { SqliteBridge } from './bridge.js'
-import {
-  aggregateFixture,
-  SQLITE_FAMILY_CAPABILITIES,
-  runAggregateCompliance,
-} from '@semilayer/bridge-sdk'
+import { SQLITE_FAMILY_CAPABILITIES } from '@semilayer/bridge-sdk'
+import { aggregateFixture, runAggregateCompliance } from '@semilayer/bridge-sdk/testing'
 
 const TABLE = 'sl_agg_fixture'
 const DB_PATH = ':memory:'

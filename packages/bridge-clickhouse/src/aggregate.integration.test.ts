@@ -7,11 +7,8 @@
 import { createClient } from '@clickhouse/client'
 import { describe, beforeAll, afterAll } from 'vitest'
 import { ClickhouseBridge } from './bridge.js'
-import {
-  aggregateFixture,
-  CLICKHOUSE_CAPABILITIES,
-  runAggregateCompliance,
-} from '@semilayer/bridge-sdk'
+import { CLICKHOUSE_CAPABILITIES } from '@semilayer/bridge-sdk'
+import { aggregateFixture, runAggregateCompliance } from '@semilayer/bridge-sdk/testing'
 
 const CH_URL = process.env['CLICKHOUSE_URL']
 const TABLE = 'sl_agg_fixture'
@@ -41,7 +38,7 @@ describe.skipIf(!CH_URL)('ClickhouseBridge aggregate integration', () => {
           views       UInt32,
           status      String,
           createdAt   DateTime
-        ) ENGINE = MergeTree() ORDER BY id
+        ) ENGINE = MergeTree() ORDER BY id SAMPLE BY id
       `,
     })
 
@@ -58,7 +55,11 @@ describe.skipIf(!CH_URL)('ClickhouseBridge aggregate integration', () => {
     await setup.insert({ table: TABLE, values: rows, format: 'JSONEachRow' })
 
     bridge = new ClickhouseBridge({
-      host: url.host,
+      // ClickhouseBridge takes host + port separately. Pass `hostname`,
+      // not `host` — the latter is `host:port` and gets concatenated
+      // with the default port producing an invalid URL.
+      host: url.hostname,
+      port: url.port ? parseInt(url.port, 10) : 8123,
       protocol: url.protocol === 'https:' ? 'https' : 'http',
       username: url.username || 'default',
       password: url.password,

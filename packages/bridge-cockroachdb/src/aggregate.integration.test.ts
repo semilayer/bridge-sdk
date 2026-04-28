@@ -7,11 +7,8 @@
 import pg from 'pg'
 import { describe, beforeAll, afterAll } from 'vitest'
 import { CockroachdbBridge } from './bridge.js'
-import {
-  aggregateFixture,
-  POSTGRES_FAMILY_CAPABILITIES,
-  runAggregateCompliance,
-} from '@semilayer/bridge-sdk'
+import { COCKROACH_CAPABILITIES } from '@semilayer/bridge-sdk'
+import { aggregateFixture, runAggregateCompliance } from '@semilayer/bridge-sdk/testing'
 
 const DATABASE_URL = process.env['DATABASE_URL']
 const TABLE = 'sl_agg_fixture'
@@ -57,6 +54,6 @@ describe.skipIf(!DATABASE_URL)('CockroachdbBridge aggregate integration', () => 
   runAggregateCompliance({
     getBridge: () => bridge,
     target: TABLE,
-    capabilities: POSTGRES_FAMILY_CAPABILITIES,
+    capabilities: COCKROACH_CAPABILITIES,
   })
 })

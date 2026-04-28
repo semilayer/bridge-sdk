@@ -15,8 +15,8 @@ import type {
 import {
   buildAggregateSql,
   executeAggregateQueries,
-  POSTGRES_DIALECT,
-  POSTGRES_FAMILY_CAPABILITIES,
+  COCKROACH_DIALECT,
+  COCKROACH_CAPABILITIES,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
@@ -178,7 +178,7 @@ export class CockroachdbBridge implements Bridge {
   }
 
   aggregateCapabilities(): BridgeAggregateCapabilities {
-    return POSTGRES_FAMILY_CAPABILITIES
+    return COCKROACH_CAPABILITIES
   }
 
   aggregate(
@@ -187,7 +187,7 @@ export class CockroachdbBridge implements Bridge {
   ): AsyncIterable<AggregateRow> {
     const pool = this.assertPool()
     return executeAggregateQueries(
-      buildAggregateSql(opts, POSTGRES_DIALECT),
+      buildAggregateSql(opts, COCKROACH_DIALECT),
       async (sql, params) => {
         const result = await pool.query(sql, params as unknown[])
         return result.rows as Array<Record<string, unknown>>
