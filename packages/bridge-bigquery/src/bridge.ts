@@ -12,6 +12,16 @@ import type {
   TargetSchema,
 } from '@semilayer/core'
 import { BigQuery } from '@google-cloud/bigquery'
+import {
+  buildAggregateSql,
+  executeAggregateQueries,
+  BIGQUERY_DIALECT,
+  BIGQUERY_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 export interface BigqueryBridgeConfig {
   projectId: string
@@ -218,6 +228,33 @@ export class BigqueryBridge implements Bridge {
       limit: options.limit,
     })
     return result.rows
+  }
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return BIGQUERY_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const bq = this.assertClient()
+    const { projectId, dataset } = this.cfg
+    // Build a fully-qualified target so the SQL builder's
+    // `qualifyTarget` quotes each segment correctly. Splitting on `.` is
+    // what every SQL bridge expects — BigQuery just has three segments
+    // instead of two.
+    const qualifiedOpts = {
+      ...opts,
+      target: `${projectId}.${dataset}.${opts.target}`,
+    }
+    return executeAggregateQueries(
+      buildAggregateSql(qualifiedOpts, BIGQUERY_DIALECT),
+      async (query, params) => {
+        const [rows] = await bq.query({ query, params: params as unknown[] })
+        return rows as Array<Record<string, unknown>>
+      },
+    )
   }
 
   async query(target: string, options: QueryOptions): Promise<QueryResult<BridgeRow>> {

@@ -10,6 +10,16 @@ import type {
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
+import {
+  buildAggregateSql,
+  executeAggregateQueries,
+  POSTGRES_DIALECT,
+  POSTGRES_FAMILY_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
 
@@ -126,6 +136,24 @@ export class NeonBridge implements Bridge {
       limit: options.limit,
     })
     return result.rows
+  }
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return POSTGRES_FAMILY_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const sql = this.assertSql()
+    return executeAggregateQueries(
+      buildAggregateSql(opts, POSTGRES_DIALECT),
+      async (q, params) => {
+        const result = await sql(q, params as unknown[])
+        return result.rows as Array<Record<string, unknown>>
+      },
+    )
   }
 
   async query(

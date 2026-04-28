@@ -1,5 +1,15 @@
 import mssqlLib from 'mssql'
 import type { ConnectionPool, IResult, config as MssqlConfig } from 'mssql'
+import {
+  buildAggregateSql,
+  executeAggregateQueries,
+  MSSQL_DIALECT,
+  MSSQL_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 import type {
   BatchReadOptions,
   Bridge,
@@ -358,6 +368,28 @@ export class MssqlBridge implements Bridge {
       rows: dataResult.recordset as BridgeRow[],
       total: (countResult.recordset as Array<{ total: number }>)[0]!.total,
     }
+  }
+
+  // -------------------------------------------------------------------
+  // Aggregate (analyze pushdown)
+  // -------------------------------------------------------------------
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return MSSQL_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    this.assertPool()
+    return executeAggregateQueries(
+      buildAggregateSql(opts, MSSQL_DIALECT),
+      async (sql, params) => {
+        const result = await this.runQuery(sql, params)
+        return result.recordset as Array<Record<string, unknown>>
+      },
+    )
   }
 
   // -------------------------------------------------------------------

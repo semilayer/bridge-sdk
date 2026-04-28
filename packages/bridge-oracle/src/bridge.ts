@@ -13,6 +13,16 @@ import type {
   TargetSchema,
   TargetColumnInfo,
 } from '@semilayer/core'
+import {
+  buildAggregateSql,
+  executeAggregateQueries,
+  ORACLE_DIALECT,
+  ORACLE_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_$.]*$/
 
@@ -219,6 +229,31 @@ export class OracleBridge implements Bridge {
       limit: options.limit,
     })
     return result.rows
+  }
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return ORACLE_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const pool = this.assertPool()
+    return executeAggregateQueries(
+      buildAggregateSql(opts, ORACLE_DIALECT),
+      async (sql, params) => {
+        const conn = await pool.getConnection()
+        try {
+          const result = await conn.execute(sql, params as unknown[], {
+            outFormat: oracledb.OUT_FORMAT_OBJECT,
+          })
+          return (result.rows ?? []) as Array<Record<string, unknown>>
+        } finally {
+          await conn.close()
+        }
+      },
+    )
   }
 
   async query(

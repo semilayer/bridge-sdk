@@ -12,6 +12,16 @@ import type {
   TargetSchema,
 } from '@semilayer/core'
 import { createClient, type ClickHouseClient } from '@clickhouse/client'
+import {
+  buildAggregateSql,
+  executeAggregateQueries,
+  CLICKHOUSE_DIALECT,
+  CLICKHOUSE_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 export interface ClickhouseBridgeConfig {
   host: string
@@ -212,6 +222,35 @@ export class ClickhouseBridge implements Bridge {
       limit: options.limit,
     })
     return result.rows
+  }
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return CLICKHOUSE_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const client = this.assertClient()
+    return executeAggregateQueries(
+      buildAggregateSql(opts, CLICKHOUSE_DIALECT),
+      async (sql, params) => {
+        // Convert positional array → ClickHouse named-param object.
+        // Dialect emits {p1:String}, {p2:String}, ... so we key by p1, p2.
+        const queryParams: Record<string, unknown> = {}
+        ;(params as unknown[]).forEach((v, i) => {
+          queryParams[`p${i + 1}`] = v
+        })
+        const resultSet = await client.query({
+          query: sql,
+          query_params: queryParams,
+          format: 'JSONEachRow',
+        })
+        const rows = (await resultSet.json()) as Array<Record<string, unknown>>
+        return rows
+      },
+    )
   }
 
   async query(target: string, options: QueryOptions): Promise<QueryResult<BridgeRow>> {

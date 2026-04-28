@@ -157,13 +157,13 @@ importers:
       '@google-cloud/bigquery':
         specifier: ^7.0.0
         version: 7.9.4(encoding@0.1.13)
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -179,6 +179,9 @@ importers:
 
   packages/bridge-cassandra:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -186,9 +189,6 @@ importers:
         specifier: ^4.7.2
         version: 4.8.0
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -207,13 +207,13 @@ importers:
       '@clickhouse/client':
         specifier: ^1.0.0
         version: 1.18.2
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -229,6 +229,9 @@ importers:
 
   packages/bridge-cockroachdb:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -236,9 +239,6 @@ importers:
         specifier: ^8.13.0
         version: 8.20.0
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -257,13 +257,13 @@ importers:
 
   packages/bridge-d1:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -279,6 +279,9 @@ importers:
 
   packages/bridge-duckdb:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -286,9 +289,6 @@ importers:
         specifier: ^1.1.0
         version: 1.4.4(encoding@0.1.13)
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -310,13 +310,13 @@ importers:
       '@aws-sdk/lib-dynamodb':
         specifier: ^3.758.0
         version: 3.1029.0(@aws-sdk/client-dynamodb@3.1029.0)
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -335,13 +335,13 @@ importers:
       '@elastic/elasticsearch':
         specifier: ^8.17.0
         version: 8.19.1
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -360,13 +360,13 @@ importers:
       '@google-cloud/firestore':
         specifier: ^7.11.0
         version: 7.11.6(encoding@0.1.13)
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -382,6 +382,9 @@ importers:
 
   packages/bridge-mariadb:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -389,9 +392,6 @@ importers:
         specifier: ^3.3.0
         version: 3.5.2
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -407,6 +407,9 @@ importers:
 
   packages/bridge-mongodb:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -414,9 +417,6 @@ importers:
         specifier: ^6.13.0
         version: 6.21.0(socks@2.8.7)
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -432,6 +432,9 @@ importers:
 
   packages/bridge-mssql:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -439,9 +442,6 @@ importers:
         specifier: ^11.0.0
         version: 11.0.1(@azure/core-client@1.10.1)
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -457,6 +457,9 @@ importers:
 
   packages/bridge-mysql:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -464,9 +467,6 @@ importers:
         specifier: ^3.9.0
         version: 3.22.0(@types/node@22.19.17)
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -485,13 +485,13 @@ importers:
       '@neondatabase/serverless':
         specifier: ^0.10.0
         version: 0.10.4
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -507,6 +507,9 @@ importers:
 
   packages/bridge-oracle:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -514,9 +517,6 @@ importers:
         specifier: ^6.7.0
         version: 6.10.0
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -535,13 +535,13 @@ importers:
       '@planetscale/database':
         specifier: ^1.19.0
         version: 1.20.1
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -557,6 +557,9 @@ importers:
 
   packages/bridge-postgres:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -564,9 +567,6 @@ importers:
         specifier: ^8.13.0
         version: 8.20.0
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -585,6 +585,9 @@ importers:
 
   packages/bridge-redis:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -592,9 +595,6 @@ importers:
         specifier: ^5.6.0
         version: 5.10.1
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -610,6 +610,9 @@ importers:
 
   packages/bridge-snowflake:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -620,9 +623,6 @@ importers:
         specifier: ^1.14.0
         version: 1.15.0(asn1.js@5.4.1)(encoding@0.1.13)
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -638,6 +638,9 @@ importers:
 
   packages/bridge-sqlite:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -645,9 +648,6 @@ importers:
         specifier: ^11.0.0
         version: 11.10.0
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/better-sqlite3':
         specifier: ^7.6.0
         version: 7.6.13
@@ -666,6 +666,9 @@ importers:
 
   packages/bridge-supabase:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -673,9 +676,6 @@ importers:
         specifier: ^2.49.0
         version: 2.103.0
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -694,13 +694,13 @@ importers:
       '@libsql/client':
         specifier: ^0.14.0
         version: 0.14.0
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -716,6 +716,9 @@ importers:
 
   packages/bridge-upstash:
     dependencies:
+      '@semilayer/bridge-sdk':
+        specifier: workspace:*
+        version: link:../../lib/bridge-sdk
       '@semilayer/core':
         specifier: ^0.1.7
         version: 0.1.7
@@ -723,9 +726,6 @@ importers:
         specifier: ^1.35.0
         version: 1.37.0
     devDependencies:
-      '@semilayer/bridge-sdk':
-        specifier: workspace:*
-        version: link:../../lib/bridge-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17

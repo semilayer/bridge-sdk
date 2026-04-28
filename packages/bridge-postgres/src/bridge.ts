@@ -14,6 +14,17 @@ import type {
   TargetSchema,
 } from '@semilayer/core'
 import { introspect, listTables } from './introspect.js'
+import {
+  buildPostgresAggregate,
+  POSTGRES_AGGREGATE_CAPABILITIES,
+} from './aggregate.js'
+import {
+  executeAggregateQueries,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 const IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/
 
@@ -501,6 +512,25 @@ export class PostgresBridge implements Bridge {
 
     const result = await pool.query(sql, params)
     return result.rows as BridgeRow[]
+  }
+
+  // -------------------------------------------------------------------
+  // Aggregate (analyze pushdown)
+  // -------------------------------------------------------------------
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return POSTGRES_AGGREGATE_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const pool = this.assertPool()
+    return executeAggregateQueries(buildPostgresAggregate(opts), async (sql, params) => {
+      const result = await pool.query(sql, params as unknown[])
+      return result.rows as Array<Record<string, unknown>>
+    })
   }
 
   // -------------------------------------------------------------------

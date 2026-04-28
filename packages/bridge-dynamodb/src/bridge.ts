@@ -19,6 +19,14 @@ import type {
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
+import {
+  streamingAggregate,
+  STREAMING_AGGREGATE_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 export interface DynamodbBridgeConfig {
   region: string
@@ -277,5 +285,21 @@ export class DynamodbBridge implements Bridge {
     if (opts.offset) rows = rows.slice(opts.offset)
     if (opts.limit) rows = rows.slice(0, opts.limit)
     return { rows, total: result.ScannedCount }
+  }
+
+  /**
+   * Aggregate via streaming reducer. DynamoDB has no native group-by;
+   * the bridge applies `candidatesWhere` via `query()` (which translates
+   * to a Scan with FilterExpression), then reduces in memory.
+   */
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return STREAMING_AGGREGATE_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    return streamingAggregate(this, opts)
   }
 }

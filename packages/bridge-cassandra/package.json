@@ -43,10 +43,10 @@
   },
   "dependencies": {
     "@semilayer/core": "^0.1.7",
-    "cassandra-driver": "^4.7.2"
+    "cassandra-driver": "^4.7.2",
+    "@semilayer/bridge-sdk": "workspace:*"
   },
   "devDependencies": {
-    "@semilayer/bridge-sdk": "workspace:*",
     "@types/node": "^22.0.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
