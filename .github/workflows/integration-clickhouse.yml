@@ -23,18 +23,21 @@ jobs:
 
     services:
       clickhouse:
-        image: clickhouse/clickhouse-server:24-alpine
+        # The :24-alpine variant hangs on GitHub-hosted runners because
+        # the default seccomp profile blocks `get_mempolicy`, which
+        # jemalloc calls on every startup tick — clickhouse never
+        # finishes initializing. Service containers don't accept
+        # `--security-opt seccomp=unconfined`, so we use the regular
+        # Ubuntu-based image where jemalloc is configured differently.
+        image: clickhouse/clickhouse-server:24
         ports:
           - 8123:8123
-        # Cold-start of clickhouse-server on alpine + ARM emulation in
-        # GitHub-hosted runners can take ~90s before /ping returns 200.
-        # Keep generous retries and a long start-period to avoid flakes.
         options: >-
           --health-cmd="wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
-          --health-interval=10s
-          --health-timeout=10s
-          --health-retries=30
-          --health-start-period=60s
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+          --health-start-period=30s
 
     steps:
       - uses: actions/checkout@v4
