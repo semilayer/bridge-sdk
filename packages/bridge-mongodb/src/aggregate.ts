@@ -29,7 +29,6 @@ import type {
   BridgeAggregateCapabilities,
   DimensionBucket,
 } from '@semilayer/bridge-sdk'
-import { formatTimeBucket } from '@semilayer/bridge-sdk'
 
 export const MONGODB_AGGREGATE_CAPABILITIES: BridgeAggregateCapabilities = {
   supports: true,
