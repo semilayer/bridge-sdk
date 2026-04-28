@@ -3,10 +3,11 @@ name: Release Please
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 env:
-  # Opt-in to Node.js 24 for JS-based actions (google release-please-action@v4
-  # still ships Node 20). Node 20 for actions is deprecated — removed 2026-09-16.
+  # Opt-in to Node.js 24 for JS-based actions (Node 20 is deprecated and
+  # will be removed from runners 2026-09-16).
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 permissions:
@@ -26,12 +27,66 @@ jobs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       paths_released: ${{ steps.release.outputs.paths_released }}
     steps:
-      - uses: googleapis/release-please-action@v5
-        id: release
+      # `googleapis/release-please-action@v5` was failing on this repo
+      # with a GitHub GraphQL "Something went wrong while executing your
+      # query" (request ids AC21:22493E:F4BE40:3D5B7AE:69EF9247 +
+      # AC21:19D60:552B1C2:565C6B2:69EFA929) — reproducible on rerun,
+      # likely because the 30-path manifest pushes the merge-commit
+      # walk past the API's complexity ceiling. The `--local` mode of
+      # `release-please-cli` reads commits + tags from a local clone
+      # via simple-git instead of GraphQL, sidestepping the failure.
+      - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Create / update release PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx -y release-please release-pr \
+            --token "${GITHUB_TOKEN}" \
+            --repo-url "${{ github.repository }}" \
+            --target-branch main \
+            --config-file release-please-config.json \
+            --manifest-file .release-please-manifest.json \
+            --local
+
+      - name: Tag GitHub releases for any merged release PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx -y release-please github-release \
+            --token "${GITHUB_TOKEN}" \
+            --repo-url "${{ github.repository }}" \
+            --target-branch main \
+            --config-file release-please-config.json \
+            --manifest-file .release-please-manifest.json \
+            --local
+
+      # Compute which paths need publishing by diffing the manifest
+      # against npm. This is more robust than parsing the CLI's stdout:
+      # it self-heals from any prior run that skipped a path, and
+      # naturally produces an empty list when nothing has bumped.
+      - name: Compute paths to publish
+        id: release
+        run: |
+          PATHS=$(node .github/scripts/compute-publish-paths.mjs)
+          echo "paths to publish: $PATHS"
+          echo "paths_released=$PATHS" >> "$GITHUB_OUTPUT"
+          if [ "$PATHS" = "[]" ]; then
+            echo "releases_created=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "releases_created=true" >> "$GITHUB_OUTPUT"
+          fi
 
   publish:
     name: Publish to npm
