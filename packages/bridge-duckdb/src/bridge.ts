@@ -17,6 +17,16 @@ import type {
   ReadResult,
   TargetSchema,
 } from '@semilayer/core'
+import {
+  buildAggregateSql,
+  executeAggregateQueries,
+  DUCKDB_DIALECT,
+  DUCKDB_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 type DuckDB = typeof DuckDBTypes
 
@@ -30,7 +40,7 @@ function openDb(ddb: DuckDB, path: string): Promise<any> {
     // Use a let + two-step assign so the variable is in scope when the callback
     // fires. Real DuckDB always calls back asynchronously (after the DB opens),
     // so `db` is always assigned before resolve(db) runs in production.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any, prefer-const
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let db: any
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     db = new (ddb as any).Database(path, (err: Error | null) =>
@@ -226,6 +236,24 @@ export class DuckdbBridge implements Bridge {
       limit: options.limit,
     })
     return result.rows
+  }
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return DUCKDB_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const conn = this.assertConn()
+    return executeAggregateQueries(
+      buildAggregateSql(opts, DUCKDB_DIALECT),
+      async (sql, params) => {
+        const rows = await allRows(conn, sql, params as unknown[])
+        return rows as Array<Record<string, unknown>>
+      },
+    )
   }
 
   async query(

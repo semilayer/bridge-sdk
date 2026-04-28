@@ -1,0 +1,69 @@
+name: Integration – CockroachDB
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/bridge-cockroachdb/**'
+      - 'lib/bridge-sdk/**'
+      - '.github/workflows/integration-cockroachdb.yml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: CockroachDB integration
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start CockroachDB
+        # GHA service containers can't override the entrypoint command, so
+        # run cockroach via `docker run` directly with `start-single-node`.
+        run: |
+          docker run -d \
+            --name crdb \
+            -p 26257:26257 \
+            -p 8080:8080 \
+            cockroachdb/cockroach:latest-v24.1 \
+            start-single-node --insecure
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "CockroachDB ready"
+              break
+            fi
+            echo "Waiting for CockroachDB ($i)..."
+            sleep 2
+          done
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build bridge-cockroachdb and its deps
+        run: pnpm turbo build --filter=@semilayer/bridge-cockroachdb...
+
+      - name: Run integration tests
+        working-directory: packages/bridge-cockroachdb
+        env:
+          DATABASE_URL: postgresql://root@127.0.0.1:26257/defaultdb?sslmode=disable
+        run: pnpm test:integration
+
+      - name: Stop CockroachDB
+        if: always()
+        run: docker rm -f crdb || true

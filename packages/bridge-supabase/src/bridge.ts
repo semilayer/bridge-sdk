@@ -11,6 +11,14 @@ import type {
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
+import {
+  streamingAggregate,
+  STREAMING_AGGREGATE_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 export interface SupabaseBridgeConfig {
   url: string
@@ -180,5 +188,24 @@ export class SupabaseBridge implements Bridge {
     if (error) throw new Error((error as { message: string }).message)
 
     return { rows: (data ?? []) as BridgeRow[], total: count ?? undefined }
+  }
+
+  /**
+   * Aggregate via the shared streaming reducer. Supabase's PostgREST
+   * surface doesn't expose arbitrary GROUP BY without a custom RPC, so
+   * we route through `streamingAggregate` which uses `query()` to
+   * pre-filter via PostgREST `.eq()` / `.gt()` — that's a real
+   * bytes-on-the-wire win over fetching `read()` and reducing service-
+   * side, while staying within PostgREST's documented surface.
+   */
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return STREAMING_AGGREGATE_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    return streamingAggregate(this, opts)
   }
 }

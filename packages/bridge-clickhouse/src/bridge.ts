@@ -12,6 +12,16 @@ import type {
   TargetSchema,
 } from '@semilayer/core'
 import { createClient, type ClickHouseClient } from '@clickhouse/client'
+import {
+  buildAggregateSql,
+  executeAggregateQueries,
+  CLICKHOUSE_DIALECT,
+  CLICKHOUSE_CAPABILITIES,
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
 
 export interface ClickhouseBridgeConfig {
   host: string
@@ -212,6 +222,53 @@ export class ClickhouseBridge implements Bridge {
       limit: options.limit,
     })
     return result.rows
+  }
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return CLICKHOUSE_CAPABILITIES
+  }
+
+  aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const client = this.assertClient()
+    return executeAggregateQueries(
+      buildAggregateSql(opts, CLICKHOUSE_DIALECT),
+      async (sql, params) => {
+        // ClickHouse requires typed placeholders ({p1:UInt32}, {p1:String},
+        // ...). The dialect emits everything as `{pN:String}` because it
+        // doesn't see the param values at SQL-build time. Re-type each
+        // placeholder here based on the JS value's runtime type — numbers
+        // (notably the LIMIT param) need UInt32/Float64, booleans need
+        // UInt8, everything else stays String.
+        let typedSql = sql
+        const queryParams: Record<string, unknown> = {}
+        ;(params as unknown[]).forEach((v, i) => {
+          const name = `p${i + 1}`
+          let chType = 'String'
+          if (typeof v === 'number') {
+            chType = Number.isInteger(v) ? 'Int64' : 'Float64'
+          } else if (typeof v === 'boolean') {
+            chType = 'UInt8'
+          } else if (v instanceof Date) {
+            chType = 'DateTime64(3)'
+          }
+          typedSql = typedSql.replace(
+            new RegExp(`\\{${name}:String\\}`, 'g'),
+            `{${name}:${chType}}`,
+          )
+          queryParams[name] = v instanceof Date ? v.toISOString() : v
+        })
+        const resultSet = await client.query({
+          query: typedSql,
+          query_params: queryParams,
+          format: 'JSONEachRow',
+        })
+        const rows = (await resultSet.json()) as Array<Record<string, unknown>>
+        return rows
+      },
+    )
   }
 
   async query(target: string, options: QueryOptions): Promise<QueryResult<BridgeRow>> {

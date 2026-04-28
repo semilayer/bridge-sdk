@@ -11,6 +11,17 @@ import type {
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
+import {
+  type AggregateOptions,
+  type AggregateRow,
+  type BridgeAggregateCapabilities,
+  type BridgeExecutionContext,
+} from '@semilayer/bridge-sdk'
+import {
+  buildMongoAggregate,
+  decodeMongoRows,
+  MONGODB_AGGREGATE_CAPABILITIES,
+} from './aggregate.js'
 
 export interface MongodbBridgeConfig {
   url: string
@@ -174,6 +185,32 @@ export class MongodbBridge implements Bridge {
       limit: options.limit,
     })
     return result.rows
+  }
+
+  aggregateCapabilities(): BridgeAggregateCapabilities {
+    return MONGODB_AGGREGATE_CAPABILITIES
+  }
+
+  async *aggregate(
+    opts: AggregateOptions,
+    _ctx?: BridgeExecutionContext,
+  ): AsyncIterable<AggregateRow> {
+    const col = this.db().collection(opts.target)
+    const built = buildMongoAggregate(opts)
+    const [main, ...tks] = await Promise.all([
+      col.aggregate(built.mainPipeline).toArray(),
+      ...built.topKPipelines.map((tk) => col.aggregate(tk.pipeline).toArray()),
+    ])
+    const tkResults: Record<string, Array<Record<string, unknown>>> = {}
+    built.topKPipelines.forEach((tk, i) => {
+      tkResults[tk.measureName] = (tks[i] ?? []) as Array<Record<string, unknown>>
+    })
+    const rows = decodeMongoRows(
+      main as Array<Record<string, unknown>>,
+      built,
+      tkResults,
+    )
+    for (const r of rows) yield r
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {
