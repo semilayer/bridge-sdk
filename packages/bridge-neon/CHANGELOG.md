@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.0](https://github.com/semilayer/bridge-sdk/compare/bridge-neon-v1.3.0...bridge-neon-v1.4.0) (2026-04-29)
+
+
+### Features
+
+* **bridge-sdk:** add buildWhereSql/assertSupportedOps helpers; wire bridge-postgres + bridge-neon ([24993ed](https://github.com/semilayer/bridge-sdk/commit/24993ed656f02fdb93e6b750ab7b4008e2e9f583))
+* **bridge-sdk:** add logical/string where operators + count(where) + UnsupportedOperatorError ([21e4d4f](https://github.com/semilayer/bridge-sdk/commit/21e4d4fe81fbb2698e6487d521cee9616b9cc26d))
+* logical/string where ops + count(where) — Bridge interface extension across all bridges ([97617e3](https://github.com/semilayer/bridge-sdk/commit/97617e3cba8e0e481ab26584951c7b2adee2a463))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @semilayer/bridge-sdk bumped to 1.4.0
+
 ## [1.3.0](https://github.com/semilayer/bridge-sdk/compare/bridge-neon-v1.2.0...bridge-neon-v1.3.0) (2026-04-27)
 
 

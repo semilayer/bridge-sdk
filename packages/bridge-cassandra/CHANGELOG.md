@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.3.0](https://github.com/semilayer/bridge-sdk/compare/bridge-cassandra-v1.2.0...bridge-cassandra-v1.3.0) (2026-04-29)
+
+
+### Features
+
+* **bridge-sdk:** add logical/string where operators + count(where) + UnsupportedOperatorError ([21e4d4f](https://github.com/semilayer/bridge-sdk/commit/21e4d4fe81fbb2698e6487d521cee9616b9cc26d))
+* **bridges:** roll out logical/string where ops + count(where) across all bridges ([32325ae](https://github.com/semilayer/bridge-sdk/commit/32325aeda71313eaaa066795023ccace9e085b81))
+* logical/string where ops + count(where) — Bridge interface extension across all bridges ([97617e3](https://github.com/semilayer/bridge-sdk/commit/97617e3cba8e0e481ab26584951c7b2adee2a463))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @semilayer/bridge-sdk bumped to 1.4.0
+
 ## [1.2.0](https://github.com/semilayer/bridge-sdk/compare/bridge-cassandra-v1.1.0...bridge-cassandra-v1.2.0) (2026-04-27)
 
 
