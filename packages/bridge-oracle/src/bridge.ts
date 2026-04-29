@@ -6,6 +6,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   ReadOptions,
   ReadResult,
   QueryOptions,
@@ -15,6 +16,7 @@ import type {
 } from '@semilayer/core'
 import {
   buildAggregateSql,
+  buildWhereSql,
   executeAggregateQueries,
   ORACLE_DIALECT,
   ORACLE_CAPABILITIES,
@@ -22,9 +24,24 @@ import {
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_$.]*$/
+
+// Oracle where dialect — double-quoted identifiers, `:N` slot-based
+// positional bind variables, and `LOWER(col) LIKE LOWER(:N)` for `$ilike`
+// since Oracle has no native ILIKE. `LOWER/LOWER` is the portable
+// case-insensitive form.
+const ORACLE_WHERE_DIALECT: WhereSqlDialect = {
+  quoteIdent: (n) => `"${n.replace(/"/g, '""')}"`,
+  placeholder: (i) => `:${i}`,
+  ilike: (col, p) => `LOWER(${col}) LIKE LOWER(${p})`,
+}
+
+const ORACLE_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const ORACLE_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const ORACLE_BRIDGE_NAME = '@semilayer/bridge-oracle'
 
 export interface OracleBridgeConfig {
   user: string
@@ -45,6 +62,9 @@ export class OracleBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: ORACLE_LOGICAL_OPS,
+    whereStringOps: ORACLE_STRING_OPS,
+    exactCount: true,
   }
 
   private pool: Pool | null = null
@@ -200,15 +220,23 @@ export class OracleBridge implements Bridge {
     return { rows, nextCursor, total }
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
     const pool = this.assertPool()
     assertTableName(target)
+
+    const built = buildWhereSql(options?.where, ORACLE_WHERE_DIALECT, {
+      logicalOps: ORACLE_LOGICAL_OPS,
+      stringOps: ORACLE_STRING_OPS,
+      bridge: ORACLE_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
 
     const conn = await pool.getConnection()
     try {
       const result = await conn.execute(
-        `SELECT COUNT(*) AS TOTAL FROM ${quoteId(target)}`,
-        [],
+        `SELECT COUNT(*) AS TOTAL FROM ${quoteId(target)} ${whereClause}`,
+        built.params,
         { outFormat: oracledb.OUT_FORMAT_OBJECT },
       )
       const rows = (result.rows ?? []) as Array<Record<string, unknown>>
@@ -267,69 +295,15 @@ export class OracleBridge implements Bridge {
       ? options.select.map(quoteId).join(', ')
       : '*'
 
-    const params: unknown[] = []
-    let paramIdx = 1
-
-    // WHERE
-    const conditions: string[] = []
-    if (options.where) {
-      for (const [key, value] of Object.entries(options.where)) {
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, opVal] of Object.entries(ops)) {
-            switch (op) {
-              case '$eq':
-                conditions.push(`${quoteId(key)} = :${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$gt':
-                conditions.push(`${quoteId(key)} > :${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$gte':
-                conditions.push(`${quoteId(key)} >= :${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$lt':
-                conditions.push(`${quoteId(key)} < :${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$lte':
-                conditions.push(`${quoteId(key)} <= :${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$in': {
-                const vals = opVal as unknown[]
-                const placeholders = vals
-                  .map((_, i) => `:${paramIdx + i}`)
-                  .join(', ')
-                conditions.push(`${quoteId(key)} IN (${placeholders})`)
-                for (const v of vals) params.push(v)
-                paramIdx += vals.length
-                break
-              }
-              default:
-                throw new Error(`Unknown operator "${op}" on field "${key}"`)
-            }
-          }
-        } else {
-          conditions.push(`${quoteId(key)} = :${paramIdx}`)
-          params.push(value)
-          paramIdx++
-        }
-      }
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
-
-    // Track where-only param count for the count query
-    const whereParamCount = params.length
+    const built = buildWhereSql(options.where, ORACLE_WHERE_DIALECT, {
+      logicalOps: ORACLE_LOGICAL_OPS,
+      stringOps: ORACLE_STRING_OPS,
+      bridge: ORACLE_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const params: unknown[] = [...built.params]
+    let paramIdx = built.nextSlot
 
     // ORDER BY
     let orderByClause = ''
@@ -355,7 +329,8 @@ export class OracleBridge implements Bridge {
       if (parts.length > 0) orderByClause = `ORDER BY ${parts.join(', ')}`
     }
 
-    // LIMIT / OFFSET via OFFSET ... ROWS FETCH NEXT ... ROWS ONLY (Oracle 12c+)
+    // LIMIT / OFFSET via OFFSET ... ROWS FETCH NEXT ... ROWS ONLY (Oracle 12c+).
+    // Slot-based placeholders so we continue from `built.nextSlot`.
     let paginationClause = ''
     if (options.limit != null || options.offset != null) {
       const offsetVal = options.offset ?? 0
@@ -383,13 +358,12 @@ export class OracleBridge implements Bridge {
       .join(' ')
 
     const countSql = `SELECT COUNT(*) AS TOTAL FROM ${quoteId(target)} ${whereClause}`
-    const countParams = params.slice(0, whereParamCount)
 
     const conn = await pool.getConnection()
     try {
       const [dataResult, countResult] = await Promise.all([
         conn.execute(querySql, params, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
-        conn.execute(countSql, countParams, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
+        conn.execute(countSql, built.params, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
       ])
 
       const rows = (dataResult.rows ?? []) as BridgeRow[]

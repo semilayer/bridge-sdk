@@ -5,15 +5,18 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   OrderByClause,
   QueryOptions,
   QueryResult,
   ReadOptions,
   ReadResult,
+  WhereClause,
 } from '@semilayer/core'
 import {
   streamingAggregate,
   STREAMING_AGGREGATE_CAPABILITIES,
+  UnsupportedOperatorError,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
@@ -28,6 +31,60 @@ export interface ElasticsearchBridgeConfig {
   tls?: { rejectUnauthorized?: boolean }
 }
 
+const ES_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const ES_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const ES_BRIDGE_NAME = '@semilayer/bridge-elasticsearch'
+
+/**
+ * ES wildcard escapes — `*` and `?` are wildcards, `\` escapes them. Anything
+ * else is literal so we don't need to touch regex metas like `.` here.
+ */
+function escapeWildcard(s: string): string {
+  return s.replace(/[\\*?]/g, '\\$&')
+}
+
+/**
+ * Translate a SQL ILIKE pattern (`%`/`_`, with `\%` / `\_` for escaped
+ * literals) to an ES wildcard string (`*`/`?`).
+ *
+ * - `%` → `*`
+ * - `_` → `?`
+ * - `\%` → escaped literal `%`, `\_` → escaped literal `_`
+ * - everything else is wildcard-escaped (so a literal `*` from the user
+ *   stays literal in the wildcard query).
+ */
+function ilikeToWildcard(pattern: string): string {
+  let out = ''
+  let i = 0
+  while (i < pattern.length) {
+    const ch = pattern[i]!
+    if (ch === '\\' && i + 1 < pattern.length) {
+      const next = pattern[i + 1]!
+      if (next === '%' || next === '_') {
+        out += escapeWildcard(next)
+        i += 2
+        continue
+      }
+      out += escapeWildcard(ch)
+      i++
+      continue
+    }
+    if (ch === '%') {
+      out += '*'
+      i++
+      continue
+    }
+    if (ch === '_') {
+      out += '?'
+      i++
+      continue
+    }
+    out += escapeWildcard(ch)
+    i++
+  }
+  return out
+}
+
 export class ElasticsearchBridge implements Bridge {
   readonly capabilities: Partial<BridgeCapabilities> = {
     batchRead: true,
@@ -39,6 +96,9 @@ export class ElasticsearchBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: ES_LOGICAL_OPS,
+    whereStringOps: ES_STRING_OPS,
+    exactCount: true,
   }
 
   static manifest: BridgeManifest = {
@@ -138,8 +198,12 @@ export class ElasticsearchBridge implements Bridge {
       .filter(i => i.length > 0 && !i.startsWith('.'))
   }
 
-  async count(target: string): Promise<number> {
-    const result = await this.assertClient().count({ index: target })
+  async count(target: string, options?: CountOptions): Promise<number> {
+    const client = this.assertClient()
+    const query = options?.where
+      ? this.translateWhere(options.where, target)
+      : { match_all: {} }
+    const result = await client.count({ index: target, body: { query } })
     return result.count
   }
 
@@ -195,40 +259,10 @@ export class ElasticsearchBridge implements Bridge {
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {
     const client = this.assertClient()
-    const must: unknown[] = []
 
-    if (opts.where) {
-      for (const [field, value] of Object.entries(opts.where)) {
-        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          for (const [op, v] of Object.entries(value as Record<string, unknown>)) {
-            switch (op) {
-              case '$eq':
-                must.push({ term: { [field]: v } })
-                break
-              case '$gt':
-                must.push({ range: { [field]: { gt: v } } })
-                break
-              case '$gte':
-                must.push({ range: { [field]: { gte: v } } })
-                break
-              case '$lt':
-                must.push({ range: { [field]: { lt: v } } })
-                break
-              case '$lte':
-                must.push({ range: { [field]: { lte: v } } })
-                break
-              case '$in':
-                must.push({ terms: { [field]: v as unknown[] } })
-                break
-              default:
-                throw new Error(`Unknown operator "${op}"`)
-            }
-          }
-        } else {
-          must.push({ term: { [field]: value } })
-        }
-      }
-    }
+    const query = opts.where
+      ? this.translateWhere(opts.where, target)
+      : { match_all: {} }
 
     const sort: Array<Record<string, string>> = []
     if (opts.orderBy) {
@@ -240,7 +274,7 @@ export class ElasticsearchBridge implements Bridge {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body: Record<string, any> = {
-      query: must.length ? { bool: { must } } : { match_all: {} },
+      query,
       ...(sort.length ? { sort } : {}),
       ...(opts.limit != null ? { size: opts.limit } : {}),
       ...(opts.offset != null ? { from: opts.offset } : {}),
@@ -256,6 +290,169 @@ export class ElasticsearchBridge implements Bridge {
     const totalObj = result.hits.total
     const total = typeof totalObj === 'number' ? totalObj : totalObj?.value
     return { rows, total }
+  }
+
+  /**
+   * Translate a SemiLayer `WhereClause` into an Elasticsearch Query DSL
+   * fragment. The top-level result is always wrapped in `{bool: {must: […]}}`
+   * (or `{match_all: {}}` for an empty clause) so callers can splice it
+   * into a `body.query` slot directly. Nested logical combinators emit
+   * their own bool wrappers — `$or` → `bool.should`, `$not` →
+   * `bool.must_not` — recursively.
+   *
+   * Mapping notes:
+   * - `$or` → `bool.should` with `minimum_should_match: 1`. Without the
+   *   minimum, ES treats `should` as a relevance booster, not a filter.
+   * - `$and` → `bool.must`. (Could use `bool.filter` for a non-scoring
+   *   variant; `must` is fine for our exact-match semantics.)
+   * - `$not` → `bool.must_not`.
+   * - String operators use `case_insensitive: true` (ES 7.10+). For older
+   *   clusters this would need a per-field `lowercase` normalizer at index
+   *   time — out of scope for the bridge.
+   */
+  private translateWhere(
+    where: WhereClause,
+    target: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ): Record<string, any> {
+    const must = this.compileClauseMust(where, target)
+    if (must.length === 0) return { match_all: {} }
+    return { bool: { must } }
+  }
+
+  private compileClauseMust(
+    clause: WhereClause,
+    target: string,
+  ): unknown[] {
+    const must: unknown[] = []
+
+    for (const [key, value] of Object.entries(clause as Record<string, unknown>)) {
+      if (key === '$or') {
+        const arr = value as WhereClause[]
+        if (!Array.isArray(arr) || arr.length === 0) continue
+        must.push({
+          bool: {
+            should: arr.map((c) => this.translateWhere(c, target)),
+            minimum_should_match: 1,
+          },
+        })
+        continue
+      }
+      if (key === '$and') {
+        const arr = value as WhereClause[]
+        if (!Array.isArray(arr) || arr.length === 0) continue
+        must.push({
+          bool: {
+            must: arr.flatMap((c) => this.compileClauseMust(c, target)),
+          },
+        })
+        continue
+      }
+      if (key === '$not') {
+        must.push({
+          bool: {
+            must_not: [this.translateWhere(value as WhereClause, target)],
+          },
+        })
+        continue
+      }
+      // Field clause — bare value or operator object.
+      this.compileFieldClause(key, value, target, must)
+    }
+
+    return must
+  }
+
+  private compileFieldClause(
+    field: string,
+    rawValue: unknown,
+    target: string,
+    must: unknown[],
+  ): void {
+    // Bare value = $eq → term (mirrors existing convention pre-refactor).
+    if (
+      rawValue === null ||
+      rawValue instanceof Date ||
+      typeof rawValue !== 'object' ||
+      Array.isArray(rawValue)
+    ) {
+      must.push({ term: { [field]: rawValue } })
+      return
+    }
+
+    const ops = rawValue as Record<string, unknown>
+    for (const [op, v] of Object.entries(ops)) {
+      switch (op) {
+        case '$eq':
+          must.push({ term: { [field]: v } })
+          break
+        case '$ne':
+          must.push({ bool: { must_not: [{ term: { [field]: v } }] } })
+          break
+        case '$gt':
+          must.push({ range: { [field]: { gt: v } } })
+          break
+        case '$gte':
+          must.push({ range: { [field]: { gte: v } } })
+          break
+        case '$lt':
+          must.push({ range: { [field]: { lt: v } } })
+          break
+        case '$lte':
+          must.push({ range: { [field]: { lte: v } } })
+          break
+        case '$in':
+          must.push({ terms: { [field]: v as unknown[] } })
+          break
+        case '$nin':
+          must.push({
+            bool: { must_not: [{ terms: { [field]: v as unknown[] } }] },
+          })
+          break
+        case '$ilike':
+          if (typeof v !== 'string') break
+          must.push({
+            wildcard: {
+              [field]: { value: ilikeToWildcard(v), case_insensitive: true },
+            },
+          })
+          break
+        case '$contains':
+          if (typeof v !== 'string') break
+          must.push({
+            wildcard: {
+              [field]: {
+                value: '*' + escapeWildcard(v) + '*',
+                case_insensitive: true,
+              },
+            },
+          })
+          break
+        case '$startsWith':
+          if (typeof v !== 'string') break
+          must.push({
+            prefix: { [field]: { value: v, case_insensitive: true } },
+          })
+          break
+        case '$endsWith':
+          if (typeof v !== 'string') break
+          must.push({
+            wildcard: {
+              [field]: {
+                value: '*' + escapeWildcard(v),
+                case_insensitive: true,
+              },
+            },
+          })
+          break
+        default:
+          throw new UnsupportedOperatorError({
+            op,
+            bridge: ES_BRIDGE_NAME,
+            target,
+          })
+      }
+    }
   }
 
   /**

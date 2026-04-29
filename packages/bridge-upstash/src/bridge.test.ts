@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { UpstashBridge } from './bridge.js'
 
 const mockPing = vi.fn().mockResolvedValue('PONG')
@@ -118,6 +119,19 @@ describe('UpstashBridge', () => {
       const n = await bridge.count('user')
 
       expect(n).toBe(0)
+    })
+
+    it('count(target, {where}) routes via query() and returns row count', async () => {
+      const bridge = new UpstashBridge({ url: 'https://x.upstash.io', token: 'tok' })
+      await bridge.connect()
+      seedKeys(['user:1', 'user:2', 'user:3'])
+      seedMget([
+        JSON.stringify({ status: 'active' }),
+        JSON.stringify({ status: 'inactive' }),
+        JSON.stringify({ status: 'active' }),
+      ])
+      const n = await bridge.count('user', { where: { status: { $eq: 'active' } } })
+      expect(n).toBe(2)
     })
   })
 
@@ -282,7 +296,7 @@ describe('UpstashBridge', () => {
       expect(result.rows[0]).toMatchObject({ role: 'admin' })
     })
 
-    it('throws on unknown operator', async () => {
+    it('throws UnsupportedOperatorError on unknown operator', async () => {
       const bridge = new UpstashBridge({ url: 'https://x.upstash.io', token: 'tok' })
       await bridge.connect()
 
@@ -291,7 +305,17 @@ describe('UpstashBridge', () => {
 
       await expect(
         bridge.query('user', { where: { name: { $regex: 'Al' } } }),
-      ).rejects.toThrow('Unknown operator "$regex"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('throws UnsupportedOperatorError on $or (logical op not declared)', async () => {
+      const bridge = new UpstashBridge({ url: 'https://x.upstash.io', token: 'tok' })
+      await bridge.connect()
+      await expect(
+        bridge.query('user', {
+          where: { $or: [{ status: 'active' }, { status: 'pending' }] },
+        }),
+      ).rejects.toThrow(UnsupportedOperatorError)
     })
 
     it('sorts with orderBy desc', async () => {

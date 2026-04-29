@@ -14,19 +14,32 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   QueryOptions,
   QueryResult,
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
 import {
+  assertSupportedOps,
   streamingAggregate,
   STREAMING_AGGREGATE_CAPABILITIES,
+  UnsupportedOperatorError,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
 } from '@semilayer/bridge-sdk'
+
+// DynamoDB FilterExpression supports OR/AND/NOT and contains/begins_with,
+// but only after a Scan/Query has already shipped rows over the wire.
+// Declaring those ops as supported would make us the first place callers
+// expect cheap pushdown — too risky for v1. Declare empty for both, and
+// keep `exactCount: false` because Scan with FilterExpression returns a
+// post-filter `Count` only over the partition that was scanned.
+const DYNAMODB_LOGICAL_OPS = [] as const
+const DYNAMODB_STRING_OPS = [] as const
+const DYNAMODB_BRIDGE_NAME = '@semilayer/bridge-dynamodb'
 
 export interface DynamodbBridgeConfig {
   region: string
@@ -47,6 +60,9 @@ export class DynamodbBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: DYNAMODB_LOGICAL_OPS,
+    whereStringOps: DYNAMODB_STRING_OPS,
+    exactCount: false,
   }
 
   static manifest: BridgeManifest = {
@@ -168,7 +184,22 @@ export class DynamodbBridge implements Bridge {
     return hashKey.AttributeName
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
+    assertSupportedOps(options?.where, {
+      logicalOps: DYNAMODB_LOGICAL_OPS,
+      stringOps: DYNAMODB_STRING_OPS,
+      bridge: DYNAMODB_BRIDGE_NAME,
+      target,
+    })
+    if (options?.where && Object.keys(options.where).length > 0) {
+      // Reuse query() — it already builds a FilterExpression from the
+      // existing $eq/$gt/$in family, runs a Scan, and returns the
+      // matching rows. Counting them here is honest given exactCount:false
+      // (large tables would need a Scan with Select:COUNT + paginated
+      // accumulation, which we defer to a future PR).
+      const result = await this.query(target, { where: options.where })
+      return result.rows.length
+    }
     const { docClient } = this.assertClients()
     const result = await docClient.send(new ScanCommand({ TableName: target, Select: 'COUNT' }))
     return result.Count ?? 0
@@ -223,6 +254,12 @@ export class DynamodbBridge implements Bridge {
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {
+    assertSupportedOps(opts.where, {
+      logicalOps: DYNAMODB_LOGICAL_OPS,
+      stringOps: DYNAMODB_STRING_OPS,
+      bridge: DYNAMODB_BRIDGE_NAME,
+      target,
+    })
     const { docClient } = this.assertClients()
     const expNames: Record<string, string> = {}
     const expValues: Record<string, unknown> = {}
@@ -256,7 +293,11 @@ export class DynamodbBridge implements Bridge {
               })
               conditions.push(`(${parts.join(' OR ')})`)
             } else {
-              throw new Error(`Unknown operator "${op}"`)
+              throw new UnsupportedOperatorError({
+                op,
+                bridge: DYNAMODB_BRIDGE_NAME,
+                target,
+              })
             }
           }
         } else {

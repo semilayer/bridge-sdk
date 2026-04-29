@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { FirestoreBridge } from './bridge.js'
 
 const mockGet = vi.fn()
@@ -133,7 +134,7 @@ describe('FirestoreBridge', () => {
   })
 
   describe('count', () => {
-    it('calls count().get() and returns data().count', async () => {
+    it('calls count().get() and returns data().count (back-compat, no options)', async () => {
       seedCount(15)
       const bridge = new FirestoreBridge({ projectId: 'my-project' })
       await bridge.connect()
@@ -141,6 +142,15 @@ describe('FirestoreBridge', () => {
       expect(n).toBe(15)
       expect(mockCount).toHaveBeenCalledOnce()
       expect(mockCountGet).toHaveBeenCalledOnce()
+    })
+
+    it('applies where predicates before counting', async () => {
+      seedCount(3)
+      const bridge = new FirestoreBridge({ projectId: 'my-project' })
+      await bridge.connect()
+      const n = await bridge.count('users', { where: { status: { $eq: 'active' } } })
+      expect(n).toBe(3)
+      expect(mockWhere).toHaveBeenCalledWith('status', '==', 'active')
     })
   })
 
@@ -249,12 +259,22 @@ describe('FirestoreBridge', () => {
       expect(mockWhere).toHaveBeenCalledWith('role', 'in', ['admin', 'editor'])
     })
 
-    it('throws on unknown operator', async () => {
+    it('throws UnsupportedOperatorError on unknown operator', async () => {
       const bridge = new FirestoreBridge({ projectId: 'my-project' })
       await bridge.connect()
       await expect(
         bridge.query('users', { where: { name: { $regex: 'Ali' } } }),
-      ).rejects.toThrow('Unknown operator "$regex" on field "name"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('throws UnsupportedOperatorError on $or (logical op not declared)', async () => {
+      const bridge = new FirestoreBridge({ projectId: 'my-project' })
+      await bridge.connect()
+      await expect(
+        bridge.query('users', {
+          where: { $or: [{ status: 'active' }, { status: 'pending' }] },
+        }),
+      ).rejects.toThrow(UnsupportedOperatorError)
     })
 
     it('applies orderBy', async () => {

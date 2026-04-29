@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { SqliteBridge } from './bridge.js'
 
 // ---------------------------------------------------------------------------
@@ -145,6 +146,25 @@ describe('SqliteBridge', () => {
       const count = await bridge.count('items')
       expect(count).toBe(42)
     })
+
+    it('count(target, {where}) calls SELECT COUNT(*) with WHERE', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedGet({ total: 7 })
+
+      const count = await bridge.count('items', {
+        where: { status: 'active' },
+      })
+      expect(count).toBe(7)
+
+      const prepareCalls = mockPrepare.mock.calls.map((c) => c[0] as string)
+      const countCall = prepareCalls.find(
+        (s) => s.includes('COUNT(*)') && s.includes('WHERE'),
+      )
+      expect(countCall).toBeDefined()
+      expect(countCall).toContain('FROM "items"')
+      expect(countCall).toContain('"status" = ?')
+    })
   })
 
   describe('query()', () => {
@@ -222,7 +242,8 @@ describe('SqliteBridge', () => {
       const selectCall = prepareCalls.find(
         (s) => s.includes('SELECT') && s.includes('IN'),
       )
-      expect(selectCall).toContain('"status" IN (?,?)')
+      // buildWhereSql emits `IN (?, ?)` (with a space after the comma)
+      expect(selectCall).toContain('"status" IN (?, ?)')
     })
 
     it('throws on unknown operator', async () => {
@@ -230,7 +251,48 @@ describe('SqliteBridge', () => {
 
       await expect(
         bridge.query('items', { where: { age: { $invalid: 1 } } }),
-      ).rejects.toThrow('Unknown operator "$invalid"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('builds OR SQL via $or logical op', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedAll([])
+      seedGet({ total: 0 })
+
+      await bridge.query('items', {
+        where: { $or: [{ status: 'active' }, { status: 'pending' }] },
+      })
+
+      const prepareCalls = mockPrepare.mock.calls.map((c) => c[0] as string)
+      const selectCall = prepareCalls.find((s) => s.includes('OR'))
+      expect(selectCall).toMatch(/"status" = \?\) OR \("status" = \?/)
+    })
+
+    it('builds NOT SQL via $not logical op', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedAll([])
+      seedGet({ total: 0 })
+
+      await bridge.query('items', { where: { $not: { status: 'archived' } } })
+
+      const prepareCalls = mockPrepare.mock.calls.map((c) => c[0] as string)
+      const selectCall = prepareCalls.find((s) => s.includes('NOT'))
+      expect(selectCall).toContain('NOT ("status" = ?)')
+    })
+
+    it('builds $ilike via LOWER(col) LIKE LOWER(?)', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedAll([])
+      seedGet({ total: 0 })
+
+      await bridge.query('items', { where: { name: { $ilike: 'Foo%' } } })
+
+      const prepareCalls = mockPrepare.mock.calls.map((c) => c[0] as string)
+      const selectCall = prepareCalls.find((s) => s.includes('LOWER'))
+      expect(selectCall).toContain('LOWER("name") LIKE LOWER(?)')
     })
 
     it('builds ORDER BY clause', async () => {

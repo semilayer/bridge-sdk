@@ -28,6 +28,7 @@ vi.mock('oracledb', () => ({
   },
 }))
 
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { OracleBridge } from './bridge.js'
 
 // ---------------------------------------------------------------------------
@@ -286,6 +287,27 @@ describe('OracleBridge', () => {
       })
       await expect(bridge.count('items')).rejects.toThrow('not connected')
     })
+
+    it('count(target, {where}) calls SELECT COUNT(*) with WHERE', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedCount(7)
+
+      const count = await bridge.count('items', { where: { status: 'active' } })
+      expect(count).toBe(7)
+
+      const allSqlCalls = mockExecute.mock.calls.map((c) => c[0] as string)
+      const countCall = allSqlCalls.find((s) => s.includes('COUNT(*)'))
+      expect(countCall).toContain('FROM "items"')
+      expect(countCall).toContain('"status" = :1')
+
+      // Find the COUNT call and verify the bound params include 'active'
+      const countCallIdx = mockExecute.mock.calls.findIndex(
+        (c) => (c[0] as string).includes('COUNT(*)'),
+      )
+      const countParams = mockExecute.mock.calls[countCallIdx]![1] as unknown[]
+      expect(countParams).toContain('active')
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -415,7 +437,52 @@ describe('OracleBridge', () => {
 
       await expect(
         bridge.query('items', { where: { age: { $invalid: 1 } } }),
-      ).rejects.toThrow('Unknown operator "$invalid"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('builds OR SQL via $or logical op', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedRows([])
+      seedCount(0)
+
+      await bridge.query('items', {
+        where: { $or: [{ status: 'active' }, { status: 'pending' }] },
+      })
+
+      const allSqlCalls = mockExecute.mock.calls.map((c) => c[0] as string)
+      const selectCall = allSqlCalls.find(
+        (s) => s.includes('SELECT') && s.includes('OR'),
+      )
+      expect(selectCall).toMatch(/"status" = :1\) OR \("status" = :2/)
+    })
+
+    it('builds NOT SQL via $not logical op', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedRows([])
+      seedCount(0)
+
+      await bridge.query('items', { where: { $not: { status: 'archived' } } })
+
+      const allSqlCalls = mockExecute.mock.calls.map((c) => c[0] as string)
+      const selectCall = allSqlCalls.find(
+        (s) => s.includes('SELECT') && s.includes('NOT'),
+      )
+      expect(selectCall).toContain('NOT ("status" = :1)')
+    })
+
+    it('builds $ilike via LOWER("col") LIKE LOWER(:N)', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedRows([])
+      seedCount(0)
+
+      await bridge.query('items', { where: { name: { $ilike: 'Foo%' } } })
+
+      const allSqlCalls = mockExecute.mock.calls.map((c) => c[0] as string)
+      const selectCall = allSqlCalls.find((s) => s.includes('LOWER'))
+      expect(selectCall).toContain('LOWER("name") LIKE LOWER(:1)')
     })
 
     it('builds ORDER BY clause with canonical { field, dir } form', async () => {

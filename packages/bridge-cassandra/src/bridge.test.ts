@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { CassandraBridge } from './bridge.js'
 
 const mockExecute = vi.fn()
@@ -169,6 +170,17 @@ describe('CassandraBridge', () => {
       const result = await bridge.count('users')
       expect(result).toBe(0)
     })
+
+    it('count(target, {where}) routes via query() and returns row count', async () => {
+      const bridge = await connectedBridge()
+      // single query() execute call returns 2 matching rows
+      seedRows([
+        { id: 'r1', status: 'active' },
+        { id: 'r2', status: 'active' },
+      ])
+      const n = await bridge.count('users', { where: { status: { $eq: 'active' } } })
+      expect(n).toBe(2)
+    })
   })
 
   describe('read', () => {
@@ -278,11 +290,20 @@ describe('CassandraBridge', () => {
       expect(sql).toContain(`"score" < ?`)
     })
 
-    it('throws on unknown operator', async () => {
+    it('throws UnsupportedOperatorError on unknown operator', async () => {
       const bridge = await connectedBridge()
       await expect(
         bridge.query('users', { where: { age: { $bad: 5 } } }),
-      ).rejects.toThrow('Unknown operator "$bad"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('throws UnsupportedOperatorError on $or (logical op not declared)', async () => {
+      const bridge = await connectedBridge()
+      await expect(
+        bridge.query('users', {
+          where: { $or: [{ status: 'active' }, { status: 'pending' }] },
+        }),
+      ).rejects.toThrow(UnsupportedOperatorError)
     })
 
     it('builds ORDER BY clause', async () => {

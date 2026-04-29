@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { DynamodbBridge } from './bridge.js'
 
 const mockSend = vi.fn()
@@ -131,6 +132,22 @@ describe('DynamodbBridge', () => {
       await bridge.connect()
       mockSend.mockResolvedValueOnce({})
       expect(await bridge.count('users')).toBe(0)
+    })
+
+    it('count(target, {where}) routes via query() and returns row count', async () => {
+      const bridge = new DynamodbBridge({ region: 'us-east-1' })
+      mockSend.mockResolvedValueOnce(defaultListTablesResponse)
+      await bridge.connect()
+      // query() runs Scan with FilterExpression
+      mockSend.mockResolvedValueOnce({
+        Items: [
+          { id: 'r1', status: 'active' },
+          { id: 'r2', status: 'active' },
+        ],
+        ScannedCount: 5,
+      })
+      const n = await bridge.count('users', { where: { status: { $eq: 'active' } } })
+      expect(n).toBe(2)
     })
   })
 
@@ -272,11 +289,20 @@ describe('DynamodbBridge', () => {
       expect(String(scanCmd.input['FilterExpression'])).toContain('OR')
     })
 
-    it('throws on unknown operator', async () => {
+    it('throws UnsupportedOperatorError on unknown operator', async () => {
       const bridge = await connectedBridge()
       await expect(
         bridge.query('users', { where: { age: { $unknown: 42 } } }),
-      ).rejects.toThrow('Unknown operator "$unknown"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('throws UnsupportedOperatorError on $or (logical op not declared)', async () => {
+      const bridge = await connectedBridge()
+      await expect(
+        bridge.query('users', {
+          where: { $or: [{ status: 'active' }, { status: 'pending' }] },
+        }),
+      ).rejects.toThrow(UnsupportedOperatorError)
     })
 
     it('applies limit and offset on result rows', async () => {

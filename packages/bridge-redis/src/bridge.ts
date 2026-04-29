@@ -5,6 +5,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   OrderByClause,
   QueryOptions,
   QueryResult,
@@ -12,13 +13,23 @@ import type {
   ReadResult,
 } from '@semilayer/core'
 import {
+  assertSupportedOps,
   streamingAggregate,
   STREAMING_AGGREGATE_CAPABILITIES,
+  UnsupportedOperatorError,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
 } from '@semilayer/bridge-sdk'
+
+// Redis is a pure key-value store with no native filtering — declare
+// empty for both logical and string ops. `exactCount` is `true` because
+// the keyspace size at a given moment is known precisely (KEYS / SCAN
+// is exact at fetch time, even if the server's snapshot is racy).
+const REDIS_LOGICAL_OPS = [] as const
+const REDIS_STRING_OPS = [] as const
+const REDIS_BRIDGE_NAME = '@semilayer/bridge-redis'
 
 export interface RedisBridgeConfig {
   url?: string
@@ -28,7 +39,7 @@ export interface RedisBridgeConfig {
   db?: number
 }
 
-function matchesWhere(row: BridgeRow, where: Record<string, unknown>): boolean {
+function matchesWhere(row: BridgeRow, where: Record<string, unknown>, target: string): boolean {
   for (const [field, value] of Object.entries(where)) {
     const v = row[field]
     if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
@@ -57,7 +68,11 @@ function matchesWhere(row: BridgeRow, where: Record<string, unknown>): boolean {
             if (!(opVal as unknown[]).includes(v)) return false
             break
           default:
-            throw new Error(`Unknown operator "${op}"`)
+            throw new UnsupportedOperatorError({
+              op,
+              bridge: REDIS_BRIDGE_NAME,
+              target,
+            })
         }
       }
     } else if (v !== value) return false
@@ -88,6 +103,9 @@ export class RedisBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: REDIS_LOGICAL_OPS,
+    whereStringOps: REDIS_STRING_OPS,
+    exactCount: true,
   }
 
   static manifest: BridgeManifest = {
@@ -168,7 +186,19 @@ export class RedisBridge implements Bridge {
     return [...new Set(keys.map(k => k.split(':')[0]).filter((p): p is string => Boolean(p)))]
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
+    assertSupportedOps(options?.where, {
+      logicalOps: REDIS_LOGICAL_OPS,
+      stringOps: REDIS_STRING_OPS,
+      bridge: REDIS_BRIDGE_NAME,
+      target,
+    })
+    if (options?.where && Object.keys(options.where).length > 0) {
+      // No native filter pushdown — fall through to query() which loads
+      // the matching keyspace and applies $eq/$gt/$in in JS.
+      const result = await this.query(target, { where: options.where })
+      return result.rows.length
+    }
     return (await this.assertRedis().keys(`${target}:*`)).length
   }
 
@@ -222,9 +252,15 @@ export class RedisBridge implements Bridge {
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {
+    assertSupportedOps(opts.where, {
+      logicalOps: REDIS_LOGICAL_OPS,
+      stringOps: REDIS_STRING_OPS,
+      bridge: REDIS_BRIDGE_NAME,
+      target,
+    })
     const all = await this.read(target, { limit: 100_000 })
     let rows = all.rows
-    if (opts.where) rows = rows.filter(row => matchesWhere(row, opts.where!))
+    if (opts.where) rows = rows.filter(row => matchesWhere(row, opts.where!, target))
     if (opts.orderBy) rows = sortRows(rows, opts.orderBy)
     const total = rows.length
     if (opts.offset) rows = rows.slice(opts.offset)

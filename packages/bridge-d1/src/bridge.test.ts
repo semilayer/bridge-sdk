@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { D1Bridge } from './bridge.js'
 
 // ---------------------------------------------------------------------------
@@ -217,6 +218,24 @@ describe('D1Bridge', () => {
       const bridge = await createConnectedBridge()
       await expect(bridge.count("'; DROP--")).rejects.toThrow('Invalid table name')
     })
+
+    it('count(target, {where}) calls SELECT COUNT(*) with WHERE', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedD1([{ total: 7 }])
+
+      const count = await bridge.count('items', {
+        where: { status: 'active' },
+      })
+      expect(count).toBe(7)
+
+      // index 0 = connect, 1 = the count call
+      const body = JSON.parse(mockFetch.mock.calls[1]![1].body as string)
+      expect(body.sql).toContain('COUNT(*) as total')
+      expect(body.sql).toContain('FROM "items"')
+      expect(body.sql).toContain('"status" = ?')
+      expect(body.params).toContain('active')
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -286,7 +305,8 @@ describe('D1Bridge', () => {
       })
 
       const dataBody = JSON.parse(mockFetch.mock.calls[1]![1].body as string)
-      expect(dataBody.sql).toContain('"status" IN (?,?)')
+      // buildWhereSql emits `IN (?, ?)` (with a space after the comma)
+      expect(dataBody.sql).toContain('"status" IN (?, ?)')
       expect(dataBody.params).toContain('active')
       expect(dataBody.params).toContain('pending')
     })
@@ -296,7 +316,49 @@ describe('D1Bridge', () => {
 
       await expect(
         bridge.query('items', { where: { age: { $invalid: 1 } } }),
-      ).rejects.toThrow('Unknown operator "$invalid"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('builds OR SQL via $or logical op', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedD1([])
+      seedD1([{ total: 0 }])
+
+      await bridge.query('items', {
+        where: { $or: [{ status: 'active' }, { status: 'pending' }] },
+      })
+
+      const dataBody = JSON.parse(mockFetch.mock.calls[1]![1].body as string)
+      expect(dataBody.sql).toMatch(/"status" = \?\) OR \("status" = \?/)
+      expect(dataBody.params).toContain('active')
+      expect(dataBody.params).toContain('pending')
+    })
+
+    it('builds NOT SQL via $not logical op', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedD1([])
+      seedD1([{ total: 0 }])
+
+      await bridge.query('items', { where: { $not: { status: 'archived' } } })
+
+      const dataBody = JSON.parse(mockFetch.mock.calls[1]![1].body as string)
+      expect(dataBody.sql).toContain('NOT ("status" = ?)')
+      expect(dataBody.params).toContain('archived')
+    })
+
+    it('builds $ilike via LOWER(col) LIKE LOWER(?)', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedD1([])
+      seedD1([{ total: 0 }])
+
+      await bridge.query('items', { where: { name: { $ilike: 'Foo%' } } })
+
+      const dataBody = JSON.parse(mockFetch.mock.calls[1]![1].body as string)
+      expect(dataBody.sql).toContain('LOWER("name") LIKE LOWER(?)')
+      expect(dataBody.params).toContain('Foo%')
     })
 
     it('builds ORDER BY with canonical array form', async () => {

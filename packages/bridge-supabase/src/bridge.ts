@@ -5,20 +5,32 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   OrderByClause,
   QueryOptions,
   QueryResult,
   ReadOptions,
   ReadResult,
+  WhereClause,
 } from '@semilayer/core'
 import {
+  assertSupportedOps,
   streamingAggregate,
   STREAMING_AGGREGATE_CAPABILITIES,
+  UnsupportedOperatorError,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
 } from '@semilayer/bridge-sdk'
+
+// Supabase exposes PostgREST through @supabase/supabase-js. PostgREST DOES
+// support `or`, `ilike`, etc., but the existing builder chain in this
+// bridge can't be retrofitted via buildWhereSql — that wiring is a
+// future PR. Declare empty for both logical and string ops for v1.
+const SUPABASE_LOGICAL_OPS = [] as const
+const SUPABASE_STRING_OPS = [] as const
+const SUPABASE_BRIDGE_NAME = '@semilayer/bridge-supabase'
 
 export interface SupabaseBridgeConfig {
   url: string
@@ -39,6 +51,9 @@ export class SupabaseBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: SUPABASE_LOGICAL_OPS,
+    whereStringOps: SUPABASE_STRING_OPS,
+    exactCount: true,
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -93,11 +108,22 @@ export class SupabaseBridge implements Bridge {
     this.client = null
   }
 
-  async count(target: string): Promise<number> {
-    const { count, error } = await this.assertClient()
+  async count(target: string, options?: CountOptions): Promise<number> {
+    assertSupportedOps(options?.where, {
+      logicalOps: SUPABASE_LOGICAL_OPS,
+      stringOps: SUPABASE_STRING_OPS,
+      bridge: SUPABASE_BRIDGE_NAME,
+      target,
+    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = this.assertClient()
       .from(target)
       .select('*', { count: 'exact', head: true })
-    if (error) throw new Error(error.message)
+    if (options?.where) {
+      q = applyPostgrestWhere(q, options.where, target)
+    }
+    const { count, error } = await q
+    if (error) throw new Error((error as { message: string }).message)
     return count ?? 0
   }
 
@@ -143,6 +169,12 @@ export class SupabaseBridge implements Bridge {
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {
+    assertSupportedOps(opts.where, {
+      logicalOps: SUPABASE_LOGICAL_OPS,
+      stringOps: SUPABASE_STRING_OPS,
+      bridge: SUPABASE_BRIDGE_NAME,
+      target,
+    })
     const client = this.assertClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let q: any = client
@@ -150,23 +182,7 @@ export class SupabaseBridge implements Bridge {
       .select(opts.select?.join(',') ?? '*', { count: 'exact' })
 
     if (opts.where) {
-      for (const [field, value] of Object.entries(opts.where)) {
-        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          for (const [op, val] of Object.entries(value as Record<string, unknown>)) {
-            switch (op) {
-              case '$eq': q = q.eq(field, val); break
-              case '$gt': q = q.gt(field, val); break
-              case '$gte': q = q.gte(field, val); break
-              case '$lt': q = q.lt(field, val); break
-              case '$lte': q = q.lte(field, val); break
-              case '$in': q = q.in(field, val as unknown[]); break
-              default: throw new Error(`Unknown operator "${op}" on field "${field}"`)
-            }
-          }
-        } else {
-          q = q.eq(field, value)
-        }
-      }
+      q = applyPostgrestWhere(q, opts.where, target)
     }
 
     if (opts.orderBy) {
@@ -208,4 +224,38 @@ export class SupabaseBridge implements Bridge {
   ): AsyncIterable<AggregateRow> {
     return streamingAggregate(this, opts)
   }
+}
+
+/**
+ * Apply a comparator-only `WhereClause` to a PostgREST builder chain.
+ * Logical/string ops are gated by `assertSupportedOps` upstream; any
+ * unknown comparator surfaces as `UnsupportedOperatorError` so callers
+ * can distinguish "bridge declines this op" from a real PostgREST error.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyPostgrestWhere(builder: any, where: WhereClause, target: string): any {
+  let q = builder
+  for (const [field, value] of Object.entries(where as Record<string, unknown>)) {
+    if (typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date)) {
+      for (const [op, val] of Object.entries(value as Record<string, unknown>)) {
+        switch (op) {
+          case '$eq': q = q.eq(field, val); break
+          case '$gt': q = q.gt(field, val); break
+          case '$gte': q = q.gte(field, val); break
+          case '$lt': q = q.lt(field, val); break
+          case '$lte': q = q.lte(field, val); break
+          case '$in': q = q.in(field, val as unknown[]); break
+          default:
+            throw new UnsupportedOperatorError({
+              op,
+              bridge: SUPABASE_BRIDGE_NAME,
+              target,
+            })
+        }
+      }
+    } else {
+      q = q.eq(field, value)
+    }
+  }
+  return q
 }

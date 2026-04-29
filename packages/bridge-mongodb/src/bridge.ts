@@ -5,13 +5,16 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   OrderByClause,
   QueryOptions,
   QueryResult,
   ReadOptions,
   ReadResult,
+  WhereClause,
 } from '@semilayer/core'
 import {
+  UnsupportedOperatorError,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
@@ -49,6 +52,78 @@ function coerceMaybeDateDeep(v: unknown): unknown {
   return coerceMaybeDate(v)
 }
 
+const MONGO_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const MONGO_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const MONGO_BRIDGE_NAME = '@semilayer/bridge-mongodb'
+
+// Comparison operators that map 1:1 to Mongo's filter language.
+const MONGO_COMPARISON_OPS = new Set([
+  '$eq',
+  '$ne',
+  '$gt',
+  '$gte',
+  '$lt',
+  '$lte',
+  '$in',
+  '$nin',
+])
+
+/**
+ * Escape regex metacharacters so a literal substring like "a.b" doesn't
+ * suddenly mean "a + any-char + b" inside a `$regex` expression.
+ */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Translate a SQL ILIKE pattern (`%`/`_` wildcards, with `\%` / `\_` for
+ * escaped literals) into a JS regex source string suitable for `$regex`.
+ *
+ * - `%` → `.*`
+ * - `_` → `.`
+ * - `\%` → literal `%`, `\_` → literal `_`
+ * - everything else is regex-escaped so e.g. `a.b%` doesn't match `axxxbX`.
+ *
+ * The result is anchored with `^` and `$` to mirror SQL ILIKE semantics
+ * (whole-string match), and the caller passes `$options: 'i'` for case
+ * insensitivity.
+ */
+function ilikeToRegex(pattern: string): string {
+  let out = '^'
+  let i = 0
+  while (i < pattern.length) {
+    const ch = pattern[i]!
+    if (ch === '\\' && i + 1 < pattern.length) {
+      const next = pattern[i + 1]!
+      if (next === '%' || next === '_') {
+        out += escapeRegex(next)
+        i += 2
+        continue
+      }
+      // Other backslash sequences: escape the backslash and let the next
+      // pass handle the following char as a literal.
+      out += escapeRegex(ch)
+      i++
+      continue
+    }
+    if (ch === '%') {
+      out += '.*'
+      i++
+      continue
+    }
+    if (ch === '_') {
+      out += '.'
+      i++
+      continue
+    }
+    out += escapeRegex(ch)
+    i++
+  }
+  out += '$'
+  return out
+}
+
 export class MongodbBridge implements Bridge {
   readonly capabilities: Partial<BridgeCapabilities> = {
     batchRead: true,
@@ -60,6 +135,9 @@ export class MongodbBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: MONGO_LOGICAL_OPS,
+    whereStringOps: MONGO_STRING_OPS,
+    exactCount: true,
   }
 
   static manifest: BridgeManifest = {
@@ -132,8 +210,9 @@ export class MongodbBridge implements Bridge {
     return cols.map((c) => c.name)
   }
 
-  async count(target: string): Promise<number> {
-    return this.db().collection(target).countDocuments()
+  async count(target: string, options?: CountOptions): Promise<number> {
+    const filter = this.translateWhere(options?.where, target)
+    return this.db().collection(target).countDocuments(filter)
   }
 
   async read(target: string, options?: ReadOptions): Promise<ReadResult> {
@@ -215,31 +294,8 @@ export class MongodbBridge implements Bridge {
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {
     const col = this.db().collection(target)
-    const filter: Document = {}
+    const filter = this.translateWhere(opts.where, target)
     const sort: Sort = {}
-
-    if (opts.where) {
-      for (const [field, value] of Object.entries(opts.where)) {
-        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          const mapped: Document = {}
-          for (const [op, val] of Object.entries(ops)) {
-            const opMap: Record<string, string> = {
-              $eq: '$eq', $gt: '$gt', $gte: '$gte', $lt: '$lt', $lte: '$lte', $in: '$in',
-            }
-            const mongoOp = opMap[op]
-            if (!mongoOp) throw new Error(`Unknown operator "${op}"`)
-            // ISO date strings → BSON Date so comparisons against Date-typed
-            // fields actually match. Without this, $gt: '2026-04-25T...' vs a
-            // BSON Date field silently returns zero rows.
-            mapped[mongoOp] = coerceMaybeDateDeep(val)
-          }
-          filter[field] = mapped
-        } else {
-          filter[field] = value
-        }
-      }
-    }
 
     if (opts.orderBy) {
       const raw: OrderByClause[] = Array.isArray(opts.orderBy) ? opts.orderBy : [opts.orderBy]
@@ -264,5 +320,111 @@ export class MongodbBridge implements Bridge {
       rows: docs.map((d) => ({ ...d, _id: String(d['_id']) })) as BridgeRow[],
       total,
     }
+  }
+
+  /**
+   * Translate a SemiLayer `WhereClause` into a MongoDB filter document.
+   *
+   * MongoDB's filter language already mirrors most of the SemiLayer shape —
+   * comparison ops (`$eq`/`$gt`/`$in`/etc.) match 1:1, and `$or`/`$and` are
+   * native top-level operators. The two non-trivial cases:
+   *
+   * 1. `$not` — Mongo's per-field `$not` only accepts an operator-doc value
+   *    (`{field: {$not: {$gt: 5}}}`), not a full where clause. We use
+   *    `$nor: [translated]` instead, which is the clause-level negation
+   *    Mongo intends for "row does not match this AND/OR tree".
+   * 2. The four string operators don't have direct Mongo equivalents; we
+   *    compile them to case-insensitive `$regex` expressions, escaping
+   *    regex metacharacters so a literal value like `"a.b"` matches that
+   *    exact string.
+   */
+  private translateWhere(
+    where: WhereClause | undefined,
+    target: string,
+  ): Document {
+    if (!where) return {}
+    return this.compileClause(where, target)
+  }
+
+  private compileClause(clause: WhereClause, target: string): Document {
+    const filter: Document = {}
+    for (const [key, value] of Object.entries(clause as Record<string, unknown>)) {
+      if (key === '$or') {
+        const arr = value as WhereClause[]
+        if (!Array.isArray(arr) || arr.length === 0) continue
+        filter['$or'] = arr.map((c) => this.compileClause(c, target))
+        continue
+      }
+      if (key === '$and') {
+        const arr = value as WhereClause[]
+        if (!Array.isArray(arr) || arr.length === 0) continue
+        filter['$and'] = arr.map((c) => this.compileClause(c, target))
+        continue
+      }
+      if (key === '$not') {
+        // $nor with a single child = "no rows match this clause"; safer
+        // and more general than per-field $not, which only accepts an
+        // operator doc. See translateWhere docblock.
+        filter['$nor'] = [this.compileClause(value as WhereClause, target)]
+        continue
+      }
+      filter[key] = this.compileFieldValue(value, target)
+    }
+    return filter
+  }
+
+  private compileFieldValue(value: unknown, target: string): unknown {
+    // Bare value = $eq (Mongo's implicit equality).
+    if (value === null) return null
+    if (
+      value instanceof Date ||
+      typeof value !== 'object' ||
+      Array.isArray(value)
+    ) {
+      return value
+    }
+
+    const ops = value as Record<string, unknown>
+    const out: Document = {}
+    for (const [op, opVal] of Object.entries(ops)) {
+      if (MONGO_COMPARISON_OPS.has(op)) {
+        // Comparison ops already match Mongo's syntax — pass through after
+        // ISO-string → BSON Date coercion so date-typed fields actually
+        // match. Without this, $gt: '2026-04-25T...' against a BSON Date
+        // field silently returns zero rows.
+        out[op] = coerceMaybeDateDeep(opVal)
+        continue
+      }
+      if (op === '$ilike') {
+        if (typeof opVal !== 'string') continue
+        out['$regex'] = ilikeToRegex(opVal)
+        out['$options'] = 'i'
+        continue
+      }
+      if (op === '$contains') {
+        if (typeof opVal !== 'string') continue
+        out['$regex'] = escapeRegex(opVal)
+        out['$options'] = 'i'
+        continue
+      }
+      if (op === '$startsWith') {
+        if (typeof opVal !== 'string') continue
+        out['$regex'] = '^' + escapeRegex(opVal)
+        out['$options'] = 'i'
+        continue
+      }
+      if (op === '$endsWith') {
+        if (typeof opVal !== 'string') continue
+        out['$regex'] = escapeRegex(opVal) + '$'
+        out['$options'] = 'i'
+        continue
+      }
+      throw new UnsupportedOperatorError({
+        op,
+        bridge: MONGO_BRIDGE_NAME,
+        target,
+      })
+    }
+    return out
   }
 }

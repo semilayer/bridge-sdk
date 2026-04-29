@@ -5,19 +5,30 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   QueryOptions,
   QueryResult,
   ReadOptions,
   ReadResult,
 } from '@semilayer/core'
 import {
+  assertSupportedOps,
   streamingAggregate,
   STREAMING_AGGREGATE_CAPABILITIES,
+  UnsupportedOperatorError,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
 } from '@semilayer/bridge-sdk'
+
+// CQL is restrictive — many filter shapes require ALLOW FILTERING, and
+// `$or`/`$ilike` etc. aren't expressible. Declare empty for both
+// operator families. `exactCount` is `false` because COUNT(*) over
+// large tables in Cassandra is approximate (and expensive) by design.
+const CASSANDRA_LOGICAL_OPS = [] as const
+const CASSANDRA_STRING_OPS = [] as const
+const CASSANDRA_BRIDGE_NAME = '@semilayer/bridge-cassandra'
 
 export interface CassandraBridgeConfig {
   contactPoints: string[]
@@ -38,6 +49,9 @@ export class CassandraBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: CASSANDRA_LOGICAL_OPS,
+    whereStringOps: CASSANDRA_STRING_OPS,
+    exactCount: false,
   }
 
   static manifest: BridgeManifest = {
@@ -162,7 +176,23 @@ export class CassandraBridge implements Bridge {
     return pk
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
+    assertSupportedOps(options?.where, {
+      logicalOps: CASSANDRA_LOGICAL_OPS,
+      stringOps: CASSANDRA_STRING_OPS,
+      bridge: CASSANDRA_BRIDGE_NAME,
+      target,
+    })
+    if (options?.where && Object.keys(options.where).length > 0) {
+      // CQL COUNT(*) WHERE requires ALLOW FILTERING and is expensive on
+      // large tables. Reuse the existing query() pipeline (which already
+      // emits ALLOW FILTERING) and return the row count — accurate for
+      // small/medium result sets, which is what callers passing a where
+      // predicate expect. exactCount is declared `false` so callers know
+      // not to rely on this for big tables.
+      const result = await this.query(target, { where: options.where })
+      return result.rows.length
+    }
     const result = await this.assertClient().execute(
       `SELECT COUNT(*) as total FROM "${this.config.keyspace}"."${target}"`,
       [],
@@ -227,6 +257,12 @@ export class CassandraBridge implements Bridge {
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {
+    assertSupportedOps(opts.where, {
+      logicalOps: CASSANDRA_LOGICAL_OPS,
+      stringOps: CASSANDRA_STRING_OPS,
+      bridge: CASSANDRA_BRIDGE_NAME,
+      target,
+    })
     const client = this.assertClient()
     const conditions: string[] = []
     const params: unknown[] = []
@@ -261,7 +297,11 @@ export class CassandraBridge implements Bridge {
                 params.push(v)
                 break
               default:
-                throw new Error(`Unknown operator "${op}"`)
+                throw new UnsupportedOperatorError({
+                  op,
+                  bridge: CASSANDRA_BRIDGE_NAME,
+                  target,
+                })
             }
           }
         } else {

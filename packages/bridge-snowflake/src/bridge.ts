@@ -5,6 +5,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   QueryOptions,
   QueryResult,
   ReadOptions,
@@ -13,6 +14,7 @@ import type {
 } from '@semilayer/core'
 import {
   buildAggregateSql,
+  buildWhereSql,
   executeAggregateQueries,
   SNOWFLAKE_DIALECT,
   SNOWFLAKE_CAPABILITIES,
@@ -20,7 +22,20 @@ import {
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
+
+// Snowflake where dialect — double-quoted identifiers, `?` positional binds,
+// and native `ILIKE` (the helper default works as-is). Snowflake's LIKE
+// supports `ESCAPE '\'` so we keep the helper's default escape clause.
+const SF_WHERE_DIALECT: WhereSqlDialect = {
+  quoteIdent: (n) => `"${n.replace(/"/g, '""')}"`,
+  placeholder: () => '?',
+}
+
+const SF_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const SF_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const SF_BRIDGE_NAME = '@semilayer/bridge-snowflake'
 
 // Suppress noisy SDK log output
 snowflake.configure({ logLevel: 'ERROR' })
@@ -97,6 +112,9 @@ export class SnowflakeBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: SF_LOGICAL_OPS,
+    whereStringOps: SF_STRING_OPS,
+    exactCount: true,
   }
 
   static manifest: BridgeManifest = {
@@ -224,11 +242,19 @@ export class SnowflakeBridge implements Bridge {
     return { rows, nextCursor, total }
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
     const conn = this.assertConn()
+    const built = buildWhereSql(options?.where, SF_WHERE_DIALECT, {
+      logicalOps: SF_LOGICAL_OPS,
+      stringOps: SF_STRING_OPS,
+      bridge: SF_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
     const rows = await executeQuery(
       conn,
-      `SELECT COUNT(*) as TOTAL FROM ${quote(target)}`,
+      `SELECT COUNT(*) as TOTAL FROM ${quote(target)} ${whereClause}`,
+      built.params as snowflake.Bind[],
     )
     return Number(rows[0]?.['TOTAL'] ?? 0)
   }
@@ -272,58 +298,14 @@ export class SnowflakeBridge implements Bridge {
 
     const selectClause = options.select ? options.select.map(quote).join(', ') : '*'
 
-    const binds: snowflake.Bind[] = []
-    const conditions: string[] = []
-
-    // WHERE
-    if (options.where) {
-      for (const [key, value] of Object.entries(options.where)) {
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, opVal] of Object.entries(ops)) {
-            switch (op) {
-              case '$eq':
-                conditions.push(`${quote(key)} = ?`)
-                binds.push(opVal as snowflake.Bind)
-                break
-              case '$gt':
-                conditions.push(`${quote(key)} > ?`)
-                binds.push(opVal as snowflake.Bind)
-                break
-              case '$gte':
-                conditions.push(`${quote(key)} >= ?`)
-                binds.push(opVal as snowflake.Bind)
-                break
-              case '$lt':
-                conditions.push(`${quote(key)} < ?`)
-                binds.push(opVal as snowflake.Bind)
-                break
-              case '$lte':
-                conditions.push(`${quote(key)} <= ?`)
-                binds.push(opVal as snowflake.Bind)
-                break
-              case '$in':
-                if (Array.isArray(opVal) && opVal.length > 0) {
-                  const placeholders = opVal.map(() => '?').join(', ')
-                  conditions.push(`${quote(key)} IN (${placeholders})`)
-                  for (const v of opVal) {
-                    binds.push(v as snowflake.Bind)
-                  }
-                }
-                break
-              default:
-                throw new Error(`Unknown operator "${op}" on field "${key}"`)
-            }
-          }
-        } else {
-          conditions.push(`${quote(key)} = ?`)
-          binds.push(value as snowflake.Bind)
-        }
-      }
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const built = buildWhereSql(options.where, SF_WHERE_DIALECT, {
+      logicalOps: SF_LOGICAL_OPS,
+      stringOps: SF_STRING_OPS,
+      bridge: SF_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const binds: snowflake.Bind[] = [...(built.params as snowflake.Bind[])]
 
     // ORDER BY
     let orderByClause = ''

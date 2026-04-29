@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { DuckdbBridge } from './bridge.js'
 
 // ---------------------------------------------------------------------------
@@ -199,11 +200,66 @@ describe('DuckdbBridge', () => {
       expect(sql).toContain('OFFSET ?')
     })
 
-    it('throws on unknown operator', async () => {
+    it('throws UnsupportedOperatorError on unknown operator', async () => {
       const bridge = await connectedBridge()
       await expect(
         bridge.query('items', { where: { age: { $regex: '.*' } } }),
-      ).rejects.toThrow('Unknown operator "$regex"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('builds OR via $or logical op', async () => {
+      const bridge = await connectedBridge()
+      seedAll([])
+      seedAll([{ total: 0 }])
+
+      await bridge.query('items', {
+        where: { $or: [{ status: 'active' }, { status: 'pending' }] },
+      })
+
+      const sql = (mockAll.mock.calls[0] as [string, ...unknown[]])[0]!
+      expect(sql).toMatch(/"status" = \?\) OR \("status" = \?/)
+    })
+
+    it('builds NOT via $not logical op', async () => {
+      const bridge = await connectedBridge()
+      seedAll([])
+      seedAll([{ total: 0 }])
+
+      await bridge.query('items', { where: { $not: { status: 'archived' } } })
+
+      const sql = (mockAll.mock.calls[0] as [string, ...unknown[]])[0]!
+      expect(sql).toContain('NOT ("status" = ?)')
+    })
+
+    it('emits native ILIKE for $ilike (DuckDB)', async () => {
+      const bridge = await connectedBridge()
+      seedAll([])
+      seedAll([{ total: 0 }])
+
+      await bridge.query('items', { where: { name: { $ilike: 'Foo%' } } })
+
+      const sql = (mockAll.mock.calls[0] as [string, ...unknown[]])[0]!
+      expect(sql).toContain('"name" ILIKE ?')
+    })
+  })
+
+  describe('count(target, options)', () => {
+    it('emits SELECT count(*) with WHERE clause and binds params', async () => {
+      const bridge = await connectedBridge()
+      seedAll([{ total: 7 }])
+
+      const n = await bridge.count('items', { where: { status: 'active' } })
+      expect(n).toBe(7)
+
+      const call = mockAll.mock.calls[0] as [string, ...unknown[]]
+      const sql = call[0]!
+      expect(sql).toContain('SELECT count(*)')
+      expect(sql).toContain('"items"')
+      expect(sql).toContain('"status" = ?')
+      // duckdb's `all(sql, ...params, cb)` style — args between sql and cb are
+      // params. The last arg is the callback.
+      const params = call.slice(1, -1)
+      expect(params).toContain('active')
     })
   })
 })

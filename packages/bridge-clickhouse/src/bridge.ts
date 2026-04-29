@@ -4,6 +4,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   QueryOptions,
   QueryResult,
   ReadOptions,
@@ -14,6 +15,7 @@ import type {
 import { createClient, type ClickHouseClient } from '@clickhouse/client'
 import {
   buildAggregateSql,
+  buildWhereSql,
   executeAggregateQueries,
   CLICKHOUSE_DIALECT,
   CLICKHOUSE_CAPABILITIES,
@@ -21,7 +23,57 @@ import {
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
+
+// ClickHouse where dialect — backtick-quoted identifiers, `?` placeholders
+// (rebound to `{p0:Type}` at execution time, see `bindParams` below), and
+// `LOWER(col) LIKE LOWER(?)` for `$ilike` since ClickHouse has no native
+// ILIKE.
+const CH_WHERE_DIALECT: WhereSqlDialect = {
+  quoteIdent: (n) => '`' + n.replace(/`/g, '``') + '`',
+  placeholder: () => '?',
+  ilike: (col, p) => `lower(${col}) LIKE lower(${p})`,
+}
+
+const CH_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const CH_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const CH_BRIDGE_NAME = '@semilayer/bridge-clickhouse'
+
+/**
+ * Convert a `?`-placeholder SQL string + positional params array into
+ * ClickHouse's named typed-parameter form (`{p0:Type}`, `query_params`).
+ *
+ * `buildWhereSql` emits `?` for portability across SQL dialects, but
+ * `@clickhouse/client` only accepts named typed placeholders over the HTTP
+ * interface. We walk each `?` left-to-right, infer the CH type from the
+ * runtime JS type of the matching value, and substitute. Bool → UInt8,
+ * integer Number → Int64, float Number → Float64, Date → DateTime64(3),
+ * everything else → String.
+ */
+function bindParams(
+  sql: string,
+  params: readonly unknown[],
+): { sql: string; queryParams: Record<string, unknown> } {
+  const queryParams: Record<string, unknown> = {}
+  let i = 0
+  const out = sql.replace(/\?/g, () => {
+    const v = params[i]
+    const name = `p${i}`
+    let chType = 'String'
+    if (typeof v === 'number') {
+      chType = Number.isInteger(v) ? 'Int64' : 'Float64'
+    } else if (typeof v === 'boolean') {
+      chType = 'UInt8'
+    } else if (v instanceof Date) {
+      chType = 'DateTime64(3)'
+    }
+    queryParams[name] = v instanceof Date ? v.toISOString() : v
+    i++
+    return `{${name}:${chType}}`
+  })
+  return { sql: out, queryParams }
+}
 
 export interface ClickhouseBridgeConfig {
   host: string
@@ -61,6 +113,9 @@ export class ClickhouseBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: CH_LOGICAL_OPS,
+    whereStringOps: CH_STRING_OPS,
+    exactCount: true,
   }
 
   static manifest: BridgeManifest = {
@@ -190,14 +245,26 @@ export class ClickhouseBridge implements Bridge {
     return { rows, nextCursor, total }
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
     const client = this.assertClient()
     const { database } = this.cfg
     const tableFqn = database
       ? `${quoteId(database)}.${quoteId(target)}`
       : quoteId(target)
+    const built = buildWhereSql(options?.where, CH_WHERE_DIALECT, {
+      logicalOps: CH_LOGICAL_OPS,
+      stringOps: CH_STRING_OPS,
+      bridge: CH_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const bound = bindParams(
+      `SELECT count() as total FROM ${tableFqn} ${whereClause}`,
+      built.params,
+    )
     const resultSet = await client.query({
-      query: `SELECT count() as total FROM ${tableFqn}`,
+      query: bound.sql,
+      query_params: bound.queryParams,
       format: 'JSONEachRow',
     })
     const rows = (await resultSet.json()) as ClickHouseCountRow[]
@@ -281,61 +348,13 @@ export class ClickhouseBridge implements Bridge {
 
     const selectClause = options.select ? options.select.map(quoteId).join(', ') : '*'
 
-    const conditions: string[] = []
-    const params: Record<string, unknown> = {}
-    let paramIdx = 0
-
-    // WHERE
-    if (options.where) {
-      for (const [key, value] of Object.entries(options.where)) {
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, opVal] of Object.entries(ops)) {
-            const pName = `p${paramIdx++}`
-            switch (op) {
-              case '$eq':
-                conditions.push(`${quoteId(key)} = {${pName}:String}`)
-                params[pName] = opVal
-                break
-              case '$gt':
-                conditions.push(`${quoteId(key)} > {${pName}:String}`)
-                params[pName] = opVal
-                break
-              case '$gte':
-                conditions.push(`${quoteId(key)} >= {${pName}:String}`)
-                params[pName] = opVal
-                break
-              case '$lt':
-                conditions.push(`${quoteId(key)} < {${pName}:String}`)
-                params[pName] = opVal
-                break
-              case '$lte':
-                conditions.push(`${quoteId(key)} <= {${pName}:String}`)
-                params[pName] = opVal
-                break
-              case '$in': {
-                const inVals = opVal as unknown[]
-                const inParams = inVals.map((v) => {
-                  const ip = `p${paramIdx++}`
-                  params[ip] = v
-                  return `{${ip}:String}`
-                })
-                conditions.push(`${quoteId(key)} IN (${inParams.join(', ')})`)
-                break
-              }
-              default:
-                throw new Error(`Unknown operator "${op}" on field "${key}"`)
-            }
-          }
-        } else {
-          const pName = `p${paramIdx++}`
-          conditions.push(`${quoteId(key)} = {${pName}:String}`)
-          params[pName] = value
-        }
-      }
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const built = buildWhereSql(options.where, CH_WHERE_DIALECT, {
+      logicalOps: CH_LOGICAL_OPS,
+      stringOps: CH_STRING_OPS,
+      bridge: CH_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
 
     // ORDER BY
     let orderByClause = ''
@@ -372,9 +391,20 @@ export class ClickhouseBridge implements Bridge {
 
     const countSql = `SELECT count() as total FROM ${tableFqn} ${whereClause}`
 
+    const dataBound = bindParams(sql, built.params)
+    const countBound = bindParams(countSql, built.params)
+
     const [dataSet, countSet] = await Promise.all([
-      client.query({ query: sql, query_params: params, format: 'JSONEachRow' }),
-      client.query({ query: countSql, query_params: params, format: 'JSONEachRow' }),
+      client.query({
+        query: dataBound.sql,
+        query_params: dataBound.queryParams,
+        format: 'JSONEachRow',
+      }),
+      client.query({
+        query: countBound.sql,
+        query_params: countBound.queryParams,
+        format: 'JSONEachRow',
+      }),
     ])
 
     const rows = (await dataSet.json()) as BridgeRow[]

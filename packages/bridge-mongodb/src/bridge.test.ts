@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { MongodbBridge } from './bridge.js'
 
 const mockToArray = vi.fn()
@@ -125,6 +126,21 @@ describe('MongodbBridge', () => {
       const result = await bridge.count('users')
       expect(result).toBe(42)
       expect(mockCountDocuments).toHaveBeenCalledOnce()
+      expect(mockCountDocuments).toHaveBeenCalledWith({})
+    })
+
+    it('passes translated filter when options.where is provided', async () => {
+      mockCountDocuments.mockResolvedValue(7)
+      const bridge = new MongodbBridge({ url: 'mongodb://localhost:27017/test' })
+      await bridge.connect()
+      const result = await bridge.count('users', {
+        where: { status: 'active', age: { $gte: 18 } },
+      })
+      expect(result).toBe(7)
+      expect(mockCountDocuments).toHaveBeenCalledWith({
+        status: 'active',
+        age: { $gte: 18 },
+      })
     })
   })
 
@@ -252,14 +268,65 @@ describe('MongodbBridge', () => {
       expect(result.rows).toHaveLength(2)
     })
 
-    it('throws on unknown operator', async () => {
+    it('throws UnsupportedOperatorError on unknown operator', async () => {
       mockCountDocuments.mockResolvedValue(0)
 
       const bridge = new MongodbBridge({ url: 'mongodb://localhost:27017/test' })
       await bridge.connect()
       await expect(
-        bridge.query('users', { where: { name: { $regex: 'Ali' } } }),
-      ).rejects.toThrow('Unknown operator "$regex"')
+        bridge.query('users', { where: { name: { $bogus: 'Ali' } } }),
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('translates $or to native $or filter', async () => {
+      mockToArray.mockResolvedValue([])
+      mockCountDocuments.mockResolvedValue(0)
+
+      const bridge = new MongodbBridge({ url: 'mongodb://localhost:27017/test' })
+      await bridge.connect()
+      await bridge.query('users', {
+        where: {
+          $or: [{ status: 'active' }, { role: { $eq: 'admin' } }],
+        },
+      })
+
+      // The translated filter is what gets passed both to countDocuments
+      // and to find(). countDocuments is called first.
+      const filter = mockCountDocuments.mock.calls[0]![0] as Record<string, unknown>
+      expect(filter).toEqual({
+        $or: [{ status: 'active' }, { role: { $eq: 'admin' } }],
+      })
+    })
+
+    it('translates $not to $nor wrapper', async () => {
+      mockToArray.mockResolvedValue([])
+      mockCountDocuments.mockResolvedValue(0)
+
+      const bridge = new MongodbBridge({ url: 'mongodb://localhost:27017/test' })
+      await bridge.connect()
+      await bridge.query('users', {
+        where: { $not: { status: 'banned' } },
+      })
+
+      const filter = mockCountDocuments.mock.calls[0]![0] as Record<string, unknown>
+      expect(filter).toEqual({ $nor: [{ status: 'banned' }] })
+    })
+
+    it('translates $ilike to case-insensitive $regex', async () => {
+      mockToArray.mockResolvedValue([])
+      mockCountDocuments.mockResolvedValue(0)
+
+      const bridge = new MongodbBridge({ url: 'mongodb://localhost:27017/test' })
+      await bridge.connect()
+      await bridge.query('users', {
+        where: { name: { $ilike: 'ali%' } },
+      })
+
+      const filter = mockCountDocuments.mock.calls[0]![0] as Record<string, unknown>
+      // ilikeToRegex anchors with ^/$ and maps % → .*
+      expect(filter).toEqual({
+        name: { $regex: '^ali.*$', $options: 'i' },
+      })
     })
 
     it('applies orderBy', async () => {

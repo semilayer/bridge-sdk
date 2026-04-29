@@ -4,6 +4,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   QueryOptions,
   QueryResult,
   ReadOptions,
@@ -14,6 +15,7 @@ import type {
 import { BigQuery } from '@google-cloud/bigquery'
 import {
   buildAggregateSql,
+  buildWhereSql,
   executeAggregateQueries,
   BIGQUERY_DIALECT,
   BIGQUERY_CAPABILITIES,
@@ -21,7 +23,25 @@ import {
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
+
+// BigQuery where dialect — backtick-quoted identifiers, `?` positional binds
+// (BigQuery's Node SDK accepts `params: unknown[]` for positional `?`).
+// BigQuery has no native ILIKE — emit `LOWER(col) LIKE LOWER(?)`. BigQuery's
+// LIKE does NOT accept the trailing `ESCAPE '\'` clause that ANSI / Postgres /
+// MySQL accept, so we disable the helper's escape clause and live with the
+// (rare) edge case where users would need to LIKE-match a literal `%`.
+const BQ_WHERE_DIALECT: WhereSqlDialect = {
+  quoteIdent: (n) => '`' + n.replace(/`/g, '\\`') + '`',
+  placeholder: () => '?',
+  ilike: (col, p) => `LOWER(${col}) LIKE LOWER(${p})`,
+  supportsLikeEscape: false,
+}
+
+const BQ_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const BQ_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const BQ_BRIDGE_NAME = '@semilayer/bridge-bigquery'
 
 export interface BigqueryBridgeConfig {
   projectId: string
@@ -50,13 +70,26 @@ function quoteRef(projectId: string, dataset: string, table: string): string {
   return `\`${projectId}.${dataset}.${table}\``
 }
 
-async function runQuery(bq: BigQuery, query: string, params?: Record<string, unknown>): Promise<BridgeRow[]> {
-  const [job] = await bq.createQueryJob({ query, params: params ?? {} })
+type QueryParams = Record<string, unknown> | unknown[]
+
+async function runQuery(
+  bq: BigQuery,
+  query: string,
+  params?: QueryParams,
+): Promise<BridgeRow[]> {
+  const [job] = await bq.createQueryJob({
+    query,
+    params: (params ?? {}) as Record<string, unknown>,
+  })
   const [rows] = await job.getQueryResults()
   return rows as BridgeRow[]
 }
 
-async function countQuery(bq: BigQuery, sql: string, params?: Record<string, unknown>): Promise<number> {
+async function countQuery(
+  bq: BigQuery,
+  sql: string,
+  params?: QueryParams,
+): Promise<number> {
   const rows = await runQuery(bq, sql, params)
   const row = (rows as CountRow[])[0]
   const raw = row?.total
@@ -76,6 +109,9 @@ export class BigqueryBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: BQ_LOGICAL_OPS,
+    whereStringOps: BQ_STRING_OPS,
+    exactCount: true,
   }
 
   static manifest: BridgeManifest = {
@@ -205,11 +241,22 @@ export class BigqueryBridge implements Bridge {
     return { rows, nextCursor, total }
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
     const bq = this.assertClient()
     const { projectId, dataset } = this.cfg
     const ref = quoteRef(projectId, dataset, target)
-    return countQuery(bq, `SELECT COUNT(*) as total FROM ${ref}`)
+    const built = buildWhereSql(options?.where, BQ_WHERE_DIALECT, {
+      logicalOps: BQ_LOGICAL_OPS,
+      stringOps: BQ_STRING_OPS,
+      bridge: BQ_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    return countQuery(
+      bq,
+      `SELECT COUNT(*) as total FROM ${ref} ${whereClause}`,
+      built.params,
+    )
   }
 
   async disconnect(): Promise<void> {
@@ -264,62 +311,14 @@ export class BigqueryBridge implements Bridge {
 
     const selectClause = options.select ? options.select.map((f) => `\`${f}\``).join(', ') : '*'
 
-    const conditions: string[] = []
-    const params: Record<string, unknown> = {}
-    let paramIdx = 0
-
-    // WHERE — BigQuery named params with @name syntax
-    if (options.where) {
-      for (const [key, value] of Object.entries(options.where)) {
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, opVal] of Object.entries(ops)) {
-            const pName = `p${paramIdx++}`
-            switch (op) {
-              case '$eq':
-                conditions.push(`\`${key}\` = @${pName}`)
-                params[pName] = opVal
-                break
-              case '$gt':
-                conditions.push(`\`${key}\` > @${pName}`)
-                params[pName] = opVal
-                break
-              case '$gte':
-                conditions.push(`\`${key}\` >= @${pName}`)
-                params[pName] = opVal
-                break
-              case '$lt':
-                conditions.push(`\`${key}\` < @${pName}`)
-                params[pName] = opVal
-                break
-              case '$lte':
-                conditions.push(`\`${key}\` <= @${pName}`)
-                params[pName] = opVal
-                break
-              case '$in': {
-                // Expand array to individual named params
-                const inVals = opVal as unknown[]
-                const inParams = inVals.map((v) => {
-                  const ip = `p${paramIdx++}`
-                  params[ip] = v
-                  return `@${ip}`
-                })
-                conditions.push(`\`${key}\` IN (${inParams.join(', ')})`)
-                break
-              }
-              default:
-                throw new Error(`Unknown operator "${op}" on field "${key}"`)
-            }
-          }
-        } else {
-          const pName = `p${paramIdx++}`
-          conditions.push(`\`${key}\` = @${pName}`)
-          params[pName] = value
-        }
-      }
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const built = buildWhereSql(options.where, BQ_WHERE_DIALECT, {
+      logicalOps: BQ_LOGICAL_OPS,
+      stringOps: BQ_STRING_OPS,
+      bridge: BQ_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const params: unknown[] = built.params
 
     // ORDER BY
     let orderByClause = ''

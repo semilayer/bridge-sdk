@@ -5,6 +5,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   QueryOptions,
   QueryResult,
   ReadOptions,
@@ -14,6 +15,7 @@ import type {
 } from '@semilayer/core'
 import {
   buildAggregateSql,
+  buildWhereSql,
   executeAggregateQueries,
   MYSQL_DIALECT,
   MYSQL_FAMILY_CAPABILITIES,
@@ -21,9 +23,23 @@ import {
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
+
+// MySQL where dialect — backtick-quoted identifiers, `?` placeholders, and
+// `LOWER(col) LIKE LOWER(?)` for `$ilike` since MySQL has no native ILIKE.
+// `$in` falls back to per-element `?` placeholders (no array param form).
+const MYSQL_WHERE_DIALECT: WhereSqlDialect = {
+  quoteIdent: (n) => '`' + n.replace(/`/g, '``') + '`',
+  placeholder: () => '?',
+  ilike: (col, p) => `LOWER(${col}) LIKE LOWER(${p})`,
+}
+
+const MYSQL_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const MYSQL_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const MYSQL_BRIDGE_NAME = '@semilayer/bridge-mysql'
 
 // mysql2 execute() expects a concrete ExecuteValues type, not unknown[].
 // We use this alias to cast at call sites where we know the values are safe.
@@ -51,6 +67,9 @@ export class MysqlBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: MYSQL_LOGICAL_OPS,
+    whereStringOps: MYSQL_STRING_OPS,
+    exactCount: true,
   }
 
   private pool: mysql.Pool | null = null
@@ -185,13 +204,23 @@ export class MysqlBridge implements Bridge {
     return { rows, nextCursor, total }
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
     const pool = this.assertPool()
     const table = target
     assertTableName(table)
 
-    const [rows] = await pool.execute(
-      `SELECT COUNT(*) as total FROM ${backtickQuote(table)}`,
+    const built = buildWhereSql(options?.where, MYSQL_WHERE_DIALECT, {
+      logicalOps: MYSQL_LOGICAL_OPS,
+      stringOps: MYSQL_STRING_OPS,
+      bridge: MYSQL_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    // pool.query (not pool.execute) — see read() above for the
+    // mysql2 prepared-statement footgun.
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) as total FROM ${backtickQuote(table)} ${whereClause}`,
+      built.params as SqlParams,
     )
     return (rows as Array<{ total: number }>)[0]!.total
   }
@@ -247,54 +276,14 @@ export class MysqlBridge implements Bridge {
       ? options.select.map(backtickQuote).join(', ')
       : '*'
 
-    const params: unknown[] = []
-
-    // WHERE
-    const conditions: string[] = []
-    if (options.where) {
-      for (const [key, value] of Object.entries(options.where)) {
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, opVal] of Object.entries(ops)) {
-            switch (op) {
-              case '$eq':
-                conditions.push(`${backtickQuote(key)} = ?`)
-                params.push(opVal)
-                break
-              case '$gt':
-                conditions.push(`${backtickQuote(key)} > ?`)
-                params.push(opVal)
-                break
-              case '$gte':
-                conditions.push(`${backtickQuote(key)} >= ?`)
-                params.push(opVal)
-                break
-              case '$lt':
-                conditions.push(`${backtickQuote(key)} < ?`)
-                params.push(opVal)
-                break
-              case '$lte':
-                conditions.push(`${backtickQuote(key)} <= ?`)
-                params.push(opVal)
-                break
-              case '$in':
-                // mysql2 handles array expansion for IN clauses
-                conditions.push(`${backtickQuote(key)} IN (?)`)
-                params.push(opVal)
-                break
-              default:
-                throw new Error(`Unknown operator "${op}" on field "${key}"`)
-            }
-          }
-        } else {
-          conditions.push(`${backtickQuote(key)} = ?`)
-          params.push(value)
-        }
-      }
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const built = buildWhereSql(options.where, MYSQL_WHERE_DIALECT, {
+      logicalOps: MYSQL_LOGICAL_OPS,
+      stringOps: MYSQL_STRING_OPS,
+      bridge: MYSQL_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const params: unknown[] = [...built.params]
 
     // ORDER BY
     let orderByClause = ''
@@ -322,10 +311,8 @@ export class MysqlBridge implements Bridge {
       if (parts.length > 0) orderByClause = `ORDER BY ${parts.join(', ')}`
     }
 
-    // Keep a snapshot of where-params for the count query
-    const whereParamCount = params.length
-
-    // LIMIT / OFFSET
+    // LIMIT / OFFSET — appended after the WHERE params. MySQL uses `?` for
+    // every slot so `built.nextSlot` is irrelevant; we just push the values.
     let limitClause = ''
     if (options.limit != null) {
       limitClause = `LIMIT ?`
@@ -349,12 +336,11 @@ export class MysqlBridge implements Bridge {
       .join(' ')
 
     const countSql = `SELECT COUNT(*) as total FROM ${backtickQuote(table)} ${whereClause}`
-    const countParams = params.slice(0, whereParamCount)
 
     // pool.query (not pool.execute) — see read() above for rationale.
     const [[dataRows], [countRows]] = await Promise.all([
       pool.query(querySql, params as SqlParams),
-      pool.query(countSql, countParams as SqlParams),
+      pool.query(countSql, built.params as SqlParams),
     ])
 
     return {
