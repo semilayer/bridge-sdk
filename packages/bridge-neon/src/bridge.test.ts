@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { NeonBridge } from './bridge.js'
 
 // ---------------------------------------------------------------------------
@@ -257,12 +258,12 @@ describe('NeonBridge', () => {
       expect(dataCall[0]).toContain('"status" = ANY($1)')
     })
 
-    it('throws on unknown operator', async () => {
+    it('throws UnsupportedOperatorError on unknown operator', async () => {
       const bridge = await createConnectedBridge()
 
       await expect(
         bridge.query('items', { where: { age: { $invalid: 1 } } }),
-      ).rejects.toThrow('Unknown operator "$invalid"')
+      ).rejects.toThrow(UnsupportedOperatorError)
     })
 
     it('builds ORDER BY with canonical array form', async () => {

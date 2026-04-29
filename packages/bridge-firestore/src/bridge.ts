@@ -5,6 +5,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   OrderByClause,
   QueryOptions,
   QueryResult,
@@ -12,13 +13,23 @@ import type {
   ReadResult,
 } from '@semilayer/core'
 import {
+  assertSupportedOps,
   streamingAggregate,
   STREAMING_AGGREGATE_CAPABILITIES,
+  UnsupportedOperatorError,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
 } from '@semilayer/bridge-sdk'
+
+// Firestore has restrictive compound queries (one inequality + one
+// array-contains per query), so the bridge declines all logical/string
+// operators. The base $eq/$gt/$gte/$lt/$lte/$in family stays handled
+// by the existing translator below.
+const FIRESTORE_LOGICAL_OPS = [] as const
+const FIRESTORE_STRING_OPS = [] as const
+const FIRESTORE_BRIDGE_NAME = '@semilayer/bridge-firestore'
 
 export interface FirestoreBridgeConfig {
   projectId: string
@@ -38,6 +49,9 @@ export class FirestoreBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: FIRESTORE_LOGICAL_OPS,
+    whereStringOps: FIRESTORE_STRING_OPS,
+    exactCount: true,
   }
 
   static manifest: BridgeManifest = {
@@ -132,8 +146,19 @@ export class FirestoreBridge implements Bridge {
     return cols.map((c) => c.id)
   }
 
-  async count(target: string): Promise<number> {
-    const snap = await this.assertDb().collection(target).count().get()
+  async count(target: string, options?: CountOptions): Promise<number> {
+    assertSupportedOps(options?.where, {
+      logicalOps: FIRESTORE_LOGICAL_OPS,
+      stringOps: FIRESTORE_STRING_OPS,
+      bridge: FIRESTORE_BRIDGE_NAME,
+      target,
+    })
+    const db = this.assertDb()
+    let q: Query = db.collection(target)
+    if (options?.where) {
+      q = applyWhere(q, options.where, target)
+    }
+    const snap = await q.count().get()
     return snap.data().count
   }
 
@@ -181,25 +206,17 @@ export class FirestoreBridge implements Bridge {
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {
+    assertSupportedOps(opts.where, {
+      logicalOps: FIRESTORE_LOGICAL_OPS,
+      stringOps: FIRESTORE_STRING_OPS,
+      bridge: FIRESTORE_BRIDGE_NAME,
+      target,
+    })
     const db = this.assertDb()
     let q: Query = db.collection(target)
 
     if (opts.where) {
-      for (const [field, value] of Object.entries(opts.where)) {
-        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, val] of Object.entries(ops)) {
-            const fsOpMap: Record<string, WhereFilterOp> = {
-              $eq: '==', $gt: '>', $gte: '>=', $lt: '<', $lte: '<=', $in: 'in',
-            }
-            const fsOp = fsOpMap[op]
-            if (!fsOp) throw new Error(`Unknown operator "${op}" on field "${field}"`)
-            q = q.where(field, fsOp, val as unknown)
-          }
-        } else {
-          q = q.where(field, '==', value)
-        }
-      }
+      q = applyWhere(q, opts.where, target)
     }
 
     if (opts.orderBy) {
@@ -238,4 +255,42 @@ export class FirestoreBridge implements Bridge {
   ): AsyncIterable<AggregateRow> {
     return streamingAggregate(this, opts)
   }
+}
+
+/**
+ * Translate a comparator-only `WhereClause` (no `$or`/`$and`/`$not`,
+ * no string ops — those are gated by `assertSupportedOps` upstream)
+ * into a chained Firestore `Query`. Unknown operators surface as
+ * `UnsupportedOperatorError` so callers can tell the difference between
+ * an operator the bridge doesn't push down vs. a real DB error.
+ */
+function applyWhere(q: Query, where: Record<string, unknown>, target: string): Query {
+  const fsOpMap: Record<string, WhereFilterOp> = {
+    $eq: '==',
+    $gt: '>',
+    $gte: '>=',
+    $lt: '<',
+    $lte: '<=',
+    $in: 'in',
+  }
+  let cursor: Query = q
+  for (const [field, value] of Object.entries(where)) {
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      const ops = value as Record<string, unknown>
+      for (const [op, val] of Object.entries(ops)) {
+        const fsOp = fsOpMap[op]
+        if (!fsOp) {
+          throw new UnsupportedOperatorError({
+            op,
+            bridge: FIRESTORE_BRIDGE_NAME,
+            target,
+          })
+        }
+        cursor = cursor.where(field, fsOp, val as unknown)
+      }
+    } else {
+      cursor = cursor.where(field, '==', value)
+    }
+  }
+  return cursor
 }

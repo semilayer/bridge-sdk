@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { RedisBridge } from './bridge.js'
 
 const mockPing = vi.fn().mockResolvedValue('PONG')
@@ -66,13 +67,27 @@ describe('RedisBridge', () => {
   })
 
   describe('count', () => {
-    it('returns the number of keys matching the prefix', async () => {
+    it('returns the number of keys matching the prefix (back-compat, no options)', async () => {
       const bridge = new RedisBridge({ host: 'localhost' })
       await bridge.connect()
       mockKeys.mockResolvedValueOnce(['user:1', 'user:2', 'user:3'])
       const result = await bridge.count('user')
       expect(mockKeys).toHaveBeenCalledWith('user:*')
       expect(result).toBe(3)
+    })
+
+    it('count(target, {where}) routes via query() and returns row count', async () => {
+      const bridge = new RedisBridge({ host: 'localhost' })
+      await bridge.connect()
+      // query() → read() → keys() + mget()
+      mockKeys.mockResolvedValueOnce(['user:1', 'user:2', 'user:3'])
+      mockMget.mockResolvedValueOnce([
+        JSON.stringify({ status: 'active' }),
+        JSON.stringify({ status: 'inactive' }),
+        JSON.stringify({ status: 'active' }),
+      ])
+      const n = await bridge.count('user', { where: { status: { $eq: 'active' } } })
+      expect(n).toBe(2)
     })
   })
 
@@ -212,11 +227,21 @@ describe('RedisBridge', () => {
       expect(result.rows).toHaveLength(2)
     })
 
-    it('throws on unknown operator', async () => {
+    it('throws UnsupportedOperatorError on unknown operator', async () => {
       const bridge = await setupBridgeWithRows([{ name: 'Alice' }])
       await expect(
         bridge.query('item', { where: { name: { $unknown: 'foo' } } }),
-      ).rejects.toThrow('Unknown operator "$unknown"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('throws UnsupportedOperatorError on $or (logical op not declared)', async () => {
+      const bridge = new RedisBridge({ host: 'localhost' })
+      await bridge.connect()
+      await expect(
+        bridge.query('item', {
+          where: { $or: [{ status: 'active' }, { status: 'pending' }] },
+        }),
+      ).rejects.toThrow(UnsupportedOperatorError)
     })
 
     it('applies orderBy', async () => {

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { ElasticsearchBridge } from './bridge.js'
 
 const mockPing = vi.fn()
@@ -128,7 +129,28 @@ describe('ElasticsearchBridge', () => {
       mockCount.mockResolvedValueOnce({ count: 150 })
       const result = await bridge.count('users')
       expect(result).toBe(150)
-      expect(mockCount).toHaveBeenCalledWith({ index: 'users' })
+      expect(mockCount).toHaveBeenCalledWith({
+        index: 'users',
+        body: { query: { match_all: {} } },
+      })
+    })
+
+    it('passes translated query when options.where is provided', async () => {
+      const bridge = new ElasticsearchBridge({ node: 'http://localhost:9200' })
+      await bridge.connect()
+      mockCount.mockResolvedValueOnce({ count: 7 })
+      const result = await bridge.count('users', {
+        where: { status: { $eq: 'active' } },
+      })
+      expect(result).toBe(7)
+      const args = mockCount.mock.calls[0]![0] as {
+        index: string
+        body: { query: { bool: { must: unknown[] } } }
+      }
+      expect(args.index).toBe('users')
+      expect(args.body.query.bool.must).toContainEqual({
+        term: { status: 'active' },
+      })
     })
   })
 
@@ -233,12 +255,59 @@ describe('ElasticsearchBridge', () => {
       expect(body.query.bool.must).toContainEqual({ terms: { role: ['admin', 'editor'] } })
     })
 
-    it('throws on unknown operator', async () => {
+    it('throws UnsupportedOperatorError on unknown operator', async () => {
       const bridge = new ElasticsearchBridge({ node: 'http://localhost:9200' })
       await bridge.connect()
       await expect(
         bridge.query('users', { where: { age: { $bad: 5 } } }),
-      ).rejects.toThrow('Unknown operator "$bad"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('translates $or to bool.should with minimum_should_match', async () => {
+      const bridge = new ElasticsearchBridge({ node: 'http://localhost:9200' })
+      await bridge.connect()
+      mockSearch.mockResolvedValueOnce({ hits: { hits: [], total: { value: 0 } } })
+      await bridge.query('users', {
+        where: {
+          $or: [{ status: { $eq: 'active' } }, { role: { $eq: 'admin' } }],
+        },
+      })
+      const body = mockSearch.mock.calls[0]![0].body
+      const must = body.query.bool.must as unknown[]
+      // Top-level wrapper is bool.must with one entry — the bool.should.
+      expect(must).toHaveLength(1)
+      const should = (must[0] as { bool: { should: unknown[]; minimum_should_match: number } })
+        .bool
+      expect(should.minimum_should_match).toBe(1)
+      expect(should.should).toHaveLength(2)
+    })
+
+    it('translates $not to bool.must_not', async () => {
+      const bridge = new ElasticsearchBridge({ node: 'http://localhost:9200' })
+      await bridge.connect()
+      mockSearch.mockResolvedValueOnce({ hits: { hits: [], total: { value: 0 } } })
+      await bridge.query('users', {
+        where: { $not: { status: { $eq: 'banned' } } },
+      })
+      const body = mockSearch.mock.calls[0]![0].body
+      const must = body.query.bool.must as unknown[]
+      expect(must).toHaveLength(1)
+      const mustNot = (must[0] as { bool: { must_not: unknown[] } }).bool.must_not
+      expect(mustNot).toHaveLength(1)
+    })
+
+    it('translates $ilike to wildcard with case_insensitive', async () => {
+      const bridge = new ElasticsearchBridge({ node: 'http://localhost:9200' })
+      await bridge.connect()
+      mockSearch.mockResolvedValueOnce({ hits: { hits: [], total: { value: 0 } } })
+      await bridge.query('users', {
+        where: { name: { $ilike: 'ali%' } },
+      })
+      const body = mockSearch.mock.calls[0]![0].body
+      // ilikeToWildcard maps % → *
+      expect(body.query.bool.must).toContainEqual({
+        wildcard: { name: { value: 'ali*', case_insensitive: true } },
+      })
     })
 
     it('builds sort from orderBy', async () => {

@@ -72,6 +72,112 @@ describe('MockBridge extras', () => {
       expect(Object.keys(row)).toEqual(['name'])
     }
   })
+
+  it('query() resolves $or as union', async () => {
+    const result = await bridge.query('items', {
+      where: { $or: [{ id: 1 }, { id: 5 }] },
+    })
+    expect(result.rows.map((r) => r['id']).sort()).toEqual([1, 5])
+  })
+
+  it('query() resolves $and as intersection', async () => {
+    const result = await bridge.query('items', {
+      where: { $and: [{ category: 'a' }, { id: { $gt: 1 } }] },
+    })
+    expect(result.rows.map((r) => r['id']).sort()).toEqual([3, 5])
+  })
+
+  it('query() resolves $not against equality', async () => {
+    const result = await bridge.query('items', { where: { $not: { category: 'a' } } })
+    expect(result.rows.every((r) => r['category'] !== 'a')).toBe(true)
+    expect(result.rows.map((r) => r['id']).sort()).toEqual([2, 4])
+  })
+
+  it('query() handles nested $or of $and / $not', async () => {
+    const result = await bridge.query('items', {
+      where: {
+        $or: [{ id: 1 }, { $and: [{ category: 'b' }, { $not: { id: 2 } }] }],
+      },
+    })
+    expect(result.rows.map((r) => r['id']).sort()).toEqual([1, 4])
+  })
+
+  it('query() $ilike matches with % wildcard, case-insensitive', async () => {
+    const result = await bridge.query('items', {
+      where: { name: { $ilike: 'al%' } },
+    })
+    expect(result.rows.map((r) => r['id'])).toEqual([1])
+  })
+
+  it('query() $ilike supports _ single-character wildcard', async () => {
+    const result = await bridge.query('items', {
+      where: { name: { $ilike: 'B_TA' } },
+    })
+    expect(result.rows.map((r) => r['id'])).toEqual([2])
+  })
+
+  it('query() $contains is a literal substring (no wildcards)', async () => {
+    const result = await bridge.query('items', {
+      where: { name: { $contains: '%' } },
+    })
+    expect(result.rows).toHaveLength(0)
+  })
+
+  it('query() $contains is case-insensitive', async () => {
+    const result = await bridge.query('items', {
+      where: { name: { $contains: 'PHA' } },
+    })
+    expect(result.rows.map((r) => r['id'])).toEqual([1])
+  })
+
+  it('query() $startsWith is case-insensitive', async () => {
+    const result = await bridge.query('items', {
+      where: { name: { $startsWith: 'GAM' } },
+    })
+    expect(result.rows.map((r) => r['id'])).toEqual([3])
+  })
+
+  it('query() $endsWith is case-insensitive', async () => {
+    const result = await bridge.query('items', {
+      where: { name: { $endsWith: 'ON' } },
+    })
+    expect(result.rows.map((r) => r['id'])).toEqual([5])
+  })
+})
+
+describe('MockBridge — count(target, options?)', () => {
+  let bridge: MockBridge
+
+  beforeAll(async () => {
+    bridge = createSeededBridge()
+    await bridge.connect()
+  })
+
+  it('counts all rows when options omitted', async () => {
+    expect(await bridge.count('items')).toBe(seedRows.length)
+  })
+
+  it('counts all rows when given empty options', async () => {
+    expect(await bridge.count('items', {})).toBe(seedRows.length)
+  })
+
+  it('counts all rows when where is empty', async () => {
+    expect(await bridge.count('items', { where: {} })).toBe(seedRows.length)
+  })
+
+  it('counts rows matching equality', async () => {
+    expect(await bridge.count('items', { where: { category: 'a' } })).toBe(3)
+  })
+
+  it('counts rows matching $or', async () => {
+    expect(
+      await bridge.count('items', { where: { $or: [{ id: 1 }, { id: 4 }] } }),
+    ).toBe(2)
+  })
+
+  it('counts rows matching $ilike (Alpha/Beta/Gamma/Delta but not Epsilon)', async () => {
+    expect(await bridge.count('items', { where: { name: { $ilike: '%a%' } } })).toBe(4)
+  })
 })
 
 describe('MockBridge.aggregate — direct reducer checks', () => {

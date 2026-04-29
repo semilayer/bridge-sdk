@@ -120,8 +120,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/bridge-upstash
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -139,8 +139,8 @@ importers:
   lib/bridge-sdk:
     dependencies:
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
     devDependencies:
       tsup:
         specifier: ^8.0.0
@@ -161,8 +161,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -183,8 +183,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       cassandra-driver:
         specifier: ^4.7.2
         version: 4.8.0
@@ -211,8 +211,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -233,8 +233,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       pg:
         specifier: ^8.13.0
         version: 8.20.0
@@ -261,8 +261,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -283,8 +283,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       duckdb:
         specifier: ^1.1.0
         version: 1.4.4(encoding@0.1.13)
@@ -314,8 +314,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -339,8 +339,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -364,8 +364,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -386,8 +386,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       mariadb:
         specifier: ^3.3.0
         version: 3.5.2
@@ -411,8 +411,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       mongodb:
         specifier: ^6.13.0
         version: 6.21.0(socks@2.8.7)
@@ -436,8 +436,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       mssql:
         specifier: ^11.0.0
         version: 11.0.1(@azure/core-client@1.10.1)
@@ -461,8 +461,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       mysql2:
         specifier: ^3.9.0
         version: 3.22.0(@types/node@22.19.17)
@@ -489,8 +489,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -511,8 +511,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       oracledb:
         specifier: ^6.7.0
         version: 6.10.0
@@ -539,8 +539,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -561,8 +561,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       pg:
         specifier: ^8.13.0
         version: 8.20.0
@@ -589,8 +589,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       ioredis:
         specifier: ^5.6.0
         version: 5.10.1
@@ -614,8 +614,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       '@types/snowflake-sdk':
         specifier: ^1.6.0
         version: 1.6.24
@@ -642,8 +642,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       better-sqlite3:
         specifier: ^11.0.0
         version: 11.10.0
@@ -670,8 +670,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       '@supabase/supabase-js':
         specifier: ^2.49.0
         version: 2.103.0
@@ -698,8 +698,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -720,8 +720,8 @@ importers:
         specifier: workspace:*
         version: link:../../lib/bridge-sdk
       '@semilayer/core':
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.27
+        version: 0.1.27
       '@upstash/redis':
         specifier: ^1.35.0
         version: 1.37.0
@@ -1596,8 +1596,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@semilayer/core@0.1.7':
-    resolution: {integrity: sha512-Pu/BzMgYM4Yj3BCYuYShmPwio3uLYXJKo0vEXkx3VWmN9vDCRvU0jiJO2Slv8V+VzT/n8YEKo/wUZT1MNw3vaw==}
+  '@semilayer/core@0.1.27':
+    resolution: {integrity: sha512-SkoCi0xAxztZyPKjOy/5YGE/YrgPZ4dd/sLJp88jAhDGxxdi7ac+WWJK/JpqeIed4ZXsDgCqnhpqeYI8X5pTUQ==}
 
   '@smithy/abort-controller@1.1.0':
     resolution: {integrity: sha512-5imgGUlZL4dW4YWdMYAKLmal9ny/tlenM81QZY7xYyb76z9Z/QOg7oM5Ak9HQl8QfFTlGVWwcMXl+54jroRgEQ==}
@@ -5429,7 +5429,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.60.1':
     optional: true
 
-  '@semilayer/core@0.1.7': {}
+  '@semilayer/core@0.1.27': {}
 
   '@smithy/abort-controller@1.1.0':
     dependencies:

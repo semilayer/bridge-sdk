@@ -5,6 +5,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   QueryOptions,
   QueryResult,
   ReadOptions,
@@ -12,6 +13,7 @@ import type {
 } from '@semilayer/core'
 import {
   buildAggregateSql,
+  buildWhereSql,
   executeAggregateQueries,
   POSTGRES_DIALECT,
   POSTGRES_FAMILY_CAPABILITIES,
@@ -19,7 +21,20 @@ import {
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
+
+const PG_WHERE_DIALECT: WhereSqlDialect = {
+  quoteIdent: (n) => `"${n.replace(/"/g, '""')}"`,
+  placeholder: (i) => `$${i}`,
+  inUsesArrayParam: true,
+  inList: (col, [ph]) => `${col} = ANY(${ph})`,
+  notInList: (col, [ph]) => `${col} <> ALL(${ph})`,
+}
+
+const PG_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const PG_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const NEON_BRIDGE_NAME = '@semilayer/bridge-neon'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
 
@@ -38,6 +53,9 @@ export class NeonBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: PG_LOGICAL_OPS,
+    whereStringOps: PG_STRING_OPS,
+    exactCount: true,
   }
 
   private sql: NeonQueryFunction<false, true> | null = null
@@ -118,10 +136,20 @@ export class NeonBridge implements Bridge {
     return { rows, nextCursor, total }
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
     const sql = this.assertSql()
     assertTableName(target)
-    const result = await sql(`SELECT count(*)::int AS total FROM ${quote(target)}`)
+    const built = buildWhereSql(options?.where, PG_WHERE_DIALECT, {
+      logicalOps: PG_LOGICAL_OPS,
+      stringOps: PG_STRING_OPS,
+      bridge: NEON_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const result = await sql(
+      `SELECT count(*)::int AS total FROM ${quote(target)} ${whereClause}`,
+      built.params,
+    )
     return result.rows[0]!['total'] as number
   }
 
@@ -167,60 +195,14 @@ export class NeonBridge implements Bridge {
       ? options.select.map(quote).join(', ')
       : '*'
 
-    const params: unknown[] = []
-    let paramIdx = 1
-
-    const conditions: string[] = []
-    if (options.where) {
-      for (const [key, value] of Object.entries(options.where)) {
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, opVal] of Object.entries(ops)) {
-            switch (op) {
-              case '$eq':
-                conditions.push(`${quote(key)} = $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$gt':
-                conditions.push(`${quote(key)} > $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$gte':
-                conditions.push(`${quote(key)} >= $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$lt':
-                conditions.push(`${quote(key)} < $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$lte':
-                conditions.push(`${quote(key)} <= $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$in':
-                conditions.push(`${quote(key)} = ANY($${paramIdx})`)
-                params.push(opVal)
-                paramIdx++
-                break
-              default:
-                throw new Error(`Unknown operator "${op}" on field "${key}"`)
-            }
-          }
-        } else {
-          conditions.push(`${quote(key)} = $${paramIdx}`)
-          params.push(value)
-          paramIdx++
-        }
-      }
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const built = buildWhereSql(options.where, PG_WHERE_DIALECT, {
+      logicalOps: PG_LOGICAL_OPS,
+      stringOps: PG_STRING_OPS,
+      bridge: NEON_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    let paramIdx = built.nextSlot
 
     let orderByClause = ''
     if (options.orderBy) {
@@ -256,7 +238,7 @@ export class NeonBridge implements Bridge {
       paramIdx++
     }
 
-    const allParams = [...params, ...limitParams]
+    const allParams = [...built.params, ...limitParams]
     const querySql = [
       `SELECT ${selectClause} FROM ${quote(target)}`,
       whereClause,
@@ -271,7 +253,7 @@ export class NeonBridge implements Bridge {
 
     const [dataResult, countResult] = await Promise.all([
       sql(querySql, allParams),
-      sql(countSql, params),
+      sql(countSql, built.params),
     ])
 
     return {

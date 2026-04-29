@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { MysqlBridge } from './bridge.js'
 
 // ---------------------------------------------------------------------------
@@ -169,6 +170,21 @@ describe('MysqlBridge', () => {
       const count = await bridge.count('items')
       expect(count).toBe(42)
     })
+
+    it('count(target, {where}) calls SELECT count(*) with WHERE', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedCount(7)
+
+      const count = await bridge.count('items', { where: { status: 'active' } })
+      expect(count).toBe(7)
+
+      const call = mockExecute.mock.calls[0]!
+      expect(call[0]).toContain('SELECT COUNT(*)')
+      expect(call[0]).toContain('FROM `items`')
+      expect(call[0]).toContain('`status` = ?')
+      expect(call[1]).toContain('active')
+    })
   })
 
   describe('query()', () => {
@@ -245,7 +261,10 @@ describe('MysqlBridge', () => {
       })
 
       const dataCall = mockExecute.mock.calls[0]!
-      expect(dataCall[0]).toContain('`status` IN (?)')
+      // buildWhereSql expands per-element placeholders for MySQL ($in)
+      expect(dataCall[0]).toContain('`status` IN (?, ?)')
+      expect(dataCall[1]).toContain('active')
+      expect(dataCall[1]).toContain('pending')
     })
 
     it('throws on unknown operator', async () => {
@@ -253,7 +272,49 @@ describe('MysqlBridge', () => {
 
       await expect(
         bridge.query('items', { where: { age: { $invalid: 1 } } }),
-      ).rejects.toThrow('Unknown operator "$invalid"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('builds OR SQL via $or logical op', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedRows([])
+      seedCount(0)
+
+      await bridge.query('items', {
+        where: { $or: [{ status: 'active' }, { status: 'pending' }] },
+      })
+
+      const dataCall = mockExecute.mock.calls[0]!
+      expect(dataCall[0]).toMatch(/`status` = \?\) OR \(`status` = \?/)
+      expect(dataCall[1]).toContain('active')
+      expect(dataCall[1]).toContain('pending')
+    })
+
+    it('builds NOT SQL via $not logical op', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedRows([])
+      seedCount(0)
+
+      await bridge.query('items', { where: { $not: { status: 'archived' } } })
+
+      const dataCall = mockExecute.mock.calls[0]!
+      expect(dataCall[0]).toContain('NOT (`status` = ?)')
+      expect(dataCall[1]).toContain('archived')
+    })
+
+    it('builds $ilike via LOWER(col) LIKE LOWER(?)', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedRows([])
+      seedCount(0)
+
+      await bridge.query('items', { where: { name: { $ilike: 'Foo%' } } })
+
+      const dataCall = mockExecute.mock.calls[0]!
+      expect(dataCall[0]).toContain('LOWER(`name`) LIKE LOWER(?)')
+      expect(dataCall[1]).toContain('Foo%')
     })
 
     it('builds ORDER BY clause', async () => {

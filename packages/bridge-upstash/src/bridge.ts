@@ -5,6 +5,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   OrderByClause,
   QueryOptions,
   QueryResult,
@@ -12,20 +13,28 @@ import type {
   ReadResult,
 } from '@semilayer/core'
 import {
+  assertSupportedOps,
   streamingAggregate,
   STREAMING_AGGREGATE_CAPABILITIES,
+  UnsupportedOperatorError,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
 } from '@semilayer/bridge-sdk'
 
+// Upstash is HTTP-fronted Redis — same operator surface as plain Redis,
+// no native filtering. Declare empty for both logical and string ops.
+const UPSTASH_LOGICAL_OPS = [] as const
+const UPSTASH_STRING_OPS = [] as const
+const UPSTASH_BRIDGE_NAME = '@semilayer/bridge-upstash'
+
 export interface UpstashBridgeConfig {
   url: string
   token: string
 }
 
-function matchesWhere(row: BridgeRow, where: Record<string, unknown>): boolean {
+function matchesWhere(row: BridgeRow, where: Record<string, unknown>, target: string): boolean {
   for (const [field, value] of Object.entries(where)) {
     const rowVal = row[field]
     if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
@@ -42,7 +51,11 @@ function matchesWhere(row: BridgeRow, where: Record<string, unknown>): boolean {
         if (op === '$lte' && !((rowVal as any) <= (v as any))) return false
         if (op === '$in' && !(v as unknown[]).includes(rowVal)) return false
         if (!['$eq', '$gt', '$gte', '$lt', '$lte', '$in'].includes(op)) {
-          throw new Error(`Unknown operator "${op}"`)
+          throw new UnsupportedOperatorError({
+            op,
+            bridge: UPSTASH_BRIDGE_NAME,
+            target,
+          })
         }
       }
     } else if (rowVal !== value) {
@@ -77,6 +90,9 @@ export class UpstashBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: UPSTASH_LOGICAL_OPS,
+    whereStringOps: UPSTASH_STRING_OPS,
+    exactCount: true,
   }
 
   static manifest: BridgeManifest = {
@@ -142,7 +158,19 @@ export class UpstashBridge implements Bridge {
     return [...prefixes]
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
+    assertSupportedOps(options?.where, {
+      logicalOps: UPSTASH_LOGICAL_OPS,
+      stringOps: UPSTASH_STRING_OPS,
+      bridge: UPSTASH_BRIDGE_NAME,
+      target,
+    })
+    if (options?.where && Object.keys(options.where).length > 0) {
+      // No native filter pushdown — fall through to query() which loads
+      // the matching keyspace and applies $eq/$gt/$in in JS.
+      const result = await this.query(target, { where: options.where })
+      return result.rows.length
+    }
     const keys = await this.assertRedis().keys(`${target}:*`)
     return keys.length
   }
@@ -205,10 +233,16 @@ export class UpstashBridge implements Bridge {
   }
 
   async query(target: string, opts: QueryOptions): Promise<QueryResult<BridgeRow>> {
+    assertSupportedOps(opts.where, {
+      logicalOps: UPSTASH_LOGICAL_OPS,
+      stringOps: UPSTASH_STRING_OPS,
+      bridge: UPSTASH_BRIDGE_NAME,
+      target,
+    })
     const all = await this.read(target, { limit: 100_000 })
     let rows = all.rows
 
-    if (opts.where) rows = rows.filter((row) => matchesWhere(row, opts.where!))
+    if (opts.where) rows = rows.filter((row) => matchesWhere(row, opts.where!, target))
     if (opts.orderBy) rows = sortRows(rows, opts.orderBy)
 
     const total = rows.length

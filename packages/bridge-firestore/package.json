@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@google-cloud/firestore": "^7.11.0",
-    "@semilayer/core": "^0.1.7",
+    "@semilayer/core": "^0.1.27",
     "@semilayer/bridge-sdk": "workspace:*"
   },
   "devDependencies": {

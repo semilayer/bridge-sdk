@@ -5,6 +5,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   QueryOptions,
   QueryResult,
   ReadOptions,
@@ -14,6 +15,7 @@ import type {
 } from '@semilayer/core'
 import {
   buildAggregateSql,
+  buildWhereSql,
   executeAggregateQueries,
   COCKROACH_DIALECT,
   COCKROACH_CAPABILITIES,
@@ -21,7 +23,23 @@ import {
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
+
+// CockroachDB is wire-compatible with Postgres — same `$N` placeholders,
+// same ILIKE, same `= ANY($1)` for `$in`. This dialect is identical to
+// the one in bridge-postgres / bridge-neon.
+const PG_WHERE_DIALECT: WhereSqlDialect = {
+  quoteIdent: (n) => `"${n.replace(/"/g, '""')}"`,
+  placeholder: (i) => `$${i}`,
+  inUsesArrayParam: true,
+  inList: (col, [ph]) => `${col} = ANY(${ph})`,
+  notInList: (col, [ph]) => `${col} <> ALL(${ph})`,
+}
+
+const PG_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const PG_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const COCKROACH_BRIDGE_NAME = '@semilayer/bridge-cockroachdb'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
 
@@ -41,6 +59,9 @@ export class CockroachdbBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: PG_LOGICAL_OPS,
+    whereStringOps: PG_STRING_OPS,
+    exactCount: true,
   }
 
   private pool: pg.Pool | null = null
@@ -158,13 +179,20 @@ export class CockroachdbBridge implements Bridge {
     return { rows, nextCursor, total }
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
     const pool = this.assertPool()
-    const table = target
-    assertTableName(table)
+    assertTableName(target)
 
+    const built = buildWhereSql(options?.where, PG_WHERE_DIALECT, {
+      logicalOps: PG_LOGICAL_OPS,
+      stringOps: PG_STRING_OPS,
+      bridge: COCKROACH_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
     const result = await pool.query(
-      `SELECT count(*)::int AS total FROM ${quote(table)}`,
+      `SELECT count(*)::int AS total FROM ${quote(target)} ${whereClause}`,
+      built.params,
     )
     return (result.rows as Array<{ total: number }>)[0]!.total
   }
@@ -199,13 +227,61 @@ export class CockroachdbBridge implements Bridge {
     target: string,
     options: BatchReadOptions,
   ): Promise<BridgeRow[]> {
-    const result = await this.query(target, {
-      where: options.where,
-      select: options.select && options.select !== '*' ? options.select : undefined,
-      orderBy: options.orderBy,
-      limit: options.limit,
+    const pool = this.assertPool()
+    assertTableName(target)
+
+    const selectClause =
+      !options.select || options.select === '*'
+        ? '*'
+        : options.select.map(quote).join(', ')
+
+    const built = buildWhereSql(options.where, PG_WHERE_DIALECT, {
+      logicalOps: PG_LOGICAL_OPS,
+      stringOps: PG_STRING_OPS,
+      bridge: COCKROACH_BRIDGE_NAME,
+      target,
     })
-    return result.rows
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const params = [...built.params]
+    let paramIdx = built.nextSlot
+
+    let orderByClause = ''
+    if (options.orderBy) {
+      const raw = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
+      const parts: string[] = []
+      for (const clause of raw) {
+        const obj = clause as unknown as Record<string, unknown>
+        if (typeof obj.field === 'string') {
+          parts.push(`${quote(obj.field)} ${obj.dir === 'desc' ? 'DESC' : 'ASC'}`)
+        } else {
+          for (const [col, dir] of Object.entries(obj)) {
+            if (dir === 'asc' || dir === 'desc') {
+              parts.push(`${quote(col)} ${dir === 'desc' ? 'DESC' : 'ASC'}`)
+            }
+          }
+        }
+      }
+      if (parts.length > 0) orderByClause = `ORDER BY ${parts.join(', ')}`
+    }
+
+    let limitClause = ''
+    if (options.limit != null) {
+      limitClause = `LIMIT $${paramIdx}`
+      params.push(options.limit)
+      paramIdx++
+    }
+
+    const sql = [
+      `SELECT ${selectClause} FROM ${quote(target)}`,
+      whereClause,
+      orderByClause,
+      limitClause,
+    ]
+      .filter(Boolean)
+      .join(' ')
+
+    const result = await pool.query(sql, params)
+    return result.rows as BridgeRow[]
   }
 
   async query(
@@ -220,64 +296,17 @@ export class CockroachdbBridge implements Bridge {
       ? options.select.map(quote).join(', ')
       : '*'
 
-    const params: unknown[] = []
-    let paramIdx = 1
+    const built = buildWhereSql(options.where, PG_WHERE_DIALECT, {
+      logicalOps: PG_LOGICAL_OPS,
+      stringOps: PG_STRING_OPS,
+      bridge: COCKROACH_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const params = [...built.params]
+    let paramIdx = built.nextSlot
 
-    // WHERE
-    const conditions: string[] = []
-    if (options.where) {
-      for (const [key, value] of Object.entries(options.where)) {
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, opVal] of Object.entries(ops)) {
-            switch (op) {
-              case '$eq':
-                conditions.push(`${quote(key)} = $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$gt':
-                conditions.push(`${quote(key)} > $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$gte':
-                conditions.push(`${quote(key)} >= $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$lt':
-                conditions.push(`${quote(key)} < $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$lte':
-                conditions.push(`${quote(key)} <= $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$in':
-                conditions.push(`${quote(key)} = ANY($${paramIdx})`)
-                params.push(opVal)
-                paramIdx++
-                break
-              default:
-                throw new Error(`Unknown operator "${op}" on field "${key}"`)
-            }
-          }
-        } else {
-          conditions.push(`${quote(key)} = $${paramIdx}`)
-          params.push(value)
-          paramIdx++
-        }
-      }
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
-
-    // ORDER BY
-    // Accepts canonical { field, dir? } or record shorthand { col: 'asc' }
+    // ORDER BY — canonical { field, dir? } or record shorthand { col: dir }
     let orderByClause = ''
     if (options.orderBy) {
       const raw = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
@@ -322,13 +351,12 @@ export class CockroachdbBridge implements Bridge {
       .filter(Boolean)
       .join(' ')
 
-    // Get total count (with same WHERE, without LIMIT/OFFSET)
+    // Count uses the same WHERE params (no LIMIT/OFFSET).
     const countSql = `SELECT count(*)::int AS total FROM ${quote(table)} ${whereClause}`
-    const countParams = options.where ? params.slice(0, conditions.length) : []
 
     const [dataResult, countResult] = await Promise.all([
       pool.query(sql, params),
-      pool.query(countSql, countParams),
+      pool.query(countSql, built.params),
     ])
 
     return {

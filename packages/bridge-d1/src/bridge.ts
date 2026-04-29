@@ -4,6 +4,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   QueryOptions,
   QueryResult,
   ReadOptions,
@@ -11,6 +12,7 @@ import type {
 } from '@semilayer/core'
 import {
   buildAggregateSql,
+  buildWhereSql,
   executeAggregateQueries,
   SQLITE_DIALECT,
   SQLITE_FAMILY_CAPABILITIES,
@@ -18,9 +20,25 @@ import {
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
+
+// SQLite where dialect — `?` placeholders, double-quoted identifiers, and
+// `LOWER(col) LIKE LOWER(?)` for `$ilike`. SQLite's built-in LIKE is
+// ASCII-CI-by-default but unsafe for non-ASCII; the LOWER/LOWER form
+// handles unicode CI consistently. D1 speaks SQLite SQL over Cloudflare's
+// HTTP API.
+const SQLITE_WHERE_DIALECT: WhereSqlDialect = {
+  quoteIdent: (n) => `"${n.replace(/"/g, '""')}"`,
+  placeholder: () => '?',
+  ilike: (col, p) => `LOWER(${col}) LIKE LOWER(${p})`,
+}
+
+const SQLITE_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const SQLITE_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const D1_BRIDGE_NAME = '@semilayer/bridge-d1'
 
 export interface D1BridgeConfig {
   accountId: string
@@ -39,6 +57,9 @@ export class D1Bridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: SQLITE_LOGICAL_OPS,
+    whereStringOps: SQLITE_STRING_OPS,
+    exactCount: true,
   }
 
   private config: D1BridgeConfig
@@ -158,10 +179,20 @@ export class D1Bridge implements Bridge {
     return { rows, nextCursor, total }
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
     this.assertConnected()
     assertTableName(target)
-    const rows = await this.execute(`SELECT COUNT(*) as total FROM ${quote(target)}`)
+    const built = buildWhereSql(options?.where, SQLITE_WHERE_DIALECT, {
+      logicalOps: SQLITE_LOGICAL_OPS,
+      stringOps: SQLITE_STRING_OPS,
+      bridge: D1_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const rows = await this.execute(
+      `SELECT COUNT(*) as total FROM ${quote(target)} ${whereClause}`,
+      built.params,
+    )
     return (rows as Array<{ total: number }>)[0]!.total
   }
 
@@ -207,54 +238,14 @@ export class D1Bridge implements Bridge {
       ? options.select.map(quote).join(', ')
       : '*'
 
-    const params: unknown[] = []
-    const conditions: string[] = []
-
-    if (options.where) {
-      for (const [key, value] of Object.entries(options.where)) {
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, opVal] of Object.entries(ops)) {
-            switch (op) {
-              case '$eq':
-                conditions.push(`${quote(key)} = ?`)
-                params.push(opVal)
-                break
-              case '$gt':
-                conditions.push(`${quote(key)} > ?`)
-                params.push(opVal)
-                break
-              case '$gte':
-                conditions.push(`${quote(key)} >= ?`)
-                params.push(opVal)
-                break
-              case '$lt':
-                conditions.push(`${quote(key)} < ?`)
-                params.push(opVal)
-                break
-              case '$lte':
-                conditions.push(`${quote(key)} <= ?`)
-                params.push(opVal)
-                break
-              case '$in': {
-                const vals = opVal as unknown[]
-                conditions.push(`${quote(key)} IN (${vals.map(() => '?').join(',')})`)
-                for (const v of vals) params.push(v)
-                break
-              }
-              default:
-                throw new Error(`Unknown operator "${op}" on field "${key}"`)
-            }
-          }
-        } else {
-          conditions.push(`${quote(key)} = ?`)
-          params.push(value)
-        }
-      }
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const built = buildWhereSql(options.where, SQLITE_WHERE_DIALECT, {
+      logicalOps: SQLITE_LOGICAL_OPS,
+      stringOps: SQLITE_STRING_OPS,
+      bridge: D1_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const params: unknown[] = [...built.params]
 
     let orderByClause = ''
     if (options.orderBy) {
@@ -275,20 +266,20 @@ export class D1Bridge implements Bridge {
       if (parts.length > 0) orderByClause = `ORDER BY ${parts.join(', ')}`
     }
 
-    const limitParams: unknown[] = []
+    // LIMIT / OFFSET — SQLite uses `?` for every slot so the helper's
+    // `nextSlot` is irrelevant; we just push the values onto `params`.
     let limitClause = ''
     if (options.limit != null) {
       limitClause = 'LIMIT ?'
-      limitParams.push(options.limit)
+      params.push(options.limit)
     }
 
     let offsetClause = ''
     if (options.offset != null) {
       offsetClause = 'OFFSET ?'
-      limitParams.push(options.offset)
+      params.push(options.offset)
     }
 
-    const allParams = [...params, ...limitParams]
     const sql = [
       `SELECT ${selectClause} FROM ${quote(target)}`,
       whereClause,
@@ -302,8 +293,8 @@ export class D1Bridge implements Bridge {
     const countSql = `SELECT COUNT(*) as total FROM ${quote(target)} ${whereClause}`
 
     const [rows, countRows] = await Promise.all([
-      this.execute(sql, allParams),
-      this.execute(countSql, params),
+      this.execute(sql, params),
+      this.execute(countSql, built.params),
     ])
 
     return {

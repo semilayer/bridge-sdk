@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import * as mariadb from 'mariadb'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { MariadbBridge } from './bridge.js'
 
 const DATABASE_URL = process.env['DATABASE_URL']
@@ -363,6 +364,6 @@ describe.skipIf(!DATABASE_URL)('MariadbBridge integration', () => {
   it('query() throws on unknown operators', async () => {
     await expect(
       bridge.query(TABLE, { where: { price: { $regex: '.*' } } }),
-    ).rejects.toThrow('Unknown operator')
+    ).rejects.toThrow(UnsupportedOperatorError)
   })
 })

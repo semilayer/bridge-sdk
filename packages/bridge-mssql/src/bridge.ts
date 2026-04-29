@@ -2,6 +2,7 @@ import mssqlLib from 'mssql'
 import type { ConnectionPool, IResult, config as MssqlConfig } from 'mssql'
 import {
   buildAggregateSql,
+  buildWhereSql,
   executeAggregateQueries,
   MSSQL_DIALECT,
   MSSQL_CAPABILITIES,
@@ -9,6 +10,7 @@ import {
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
 import type {
   BatchReadOptions,
@@ -16,6 +18,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   ReadOptions,
   ReadResult,
   QueryOptions,
@@ -25,6 +28,21 @@ import type {
 } from '@semilayer/core'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
+
+// MSSQL where dialect — bracket-quoted identifiers, `@p1` slot-based
+// placeholders, and `LOWER(col) LIKE LOWER(@pN)` for `$ilike` since SQL
+// Server has no native ILIKE. `LOWER/LOWER` is the portable case-insensitive
+// form across collations (`COLLATE Latin1_General_CI_AS` would also work
+// but is collation-dependent).
+const MSSQL_WHERE_DIALECT: WhereSqlDialect = {
+  quoteIdent: (n) => `[${n.replace(/]/g, ']]')}]`,
+  placeholder: (i) => `@p${i}`,
+  ilike: (col, p) => `LOWER(${col}) LIKE LOWER(${p})`,
+}
+
+const MSSQL_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const MSSQL_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const MSSQL_BRIDGE_NAME = '@semilayer/bridge-mssql'
 
 export interface MssqlBridgeConfig {
   url?: string
@@ -49,6 +67,9 @@ export class MssqlBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: MSSQL_LOGICAL_OPS,
+    whereStringOps: MSSQL_STRING_OPS,
+    exactCount: true,
   }
 
   private pool: ConnectionPool | null = null
@@ -194,14 +215,21 @@ export class MssqlBridge implements Bridge {
     return { rows, nextCursor, total }
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
     this.assertPool()
     const table = target
     assertTableName(table)
 
+    const built = buildWhereSql(options?.where, MSSQL_WHERE_DIALECT, {
+      logicalOps: MSSQL_LOGICAL_OPS,
+      stringOps: MSSQL_STRING_OPS,
+      bridge: MSSQL_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
     const result = await this.runQuery(
-      `SELECT COUNT(*) as total FROM ${bracket(table)}`,
-      [],
+      `SELECT COUNT(*) as total FROM ${bracket(table)} ${whereClause}`,
+      built.params,
     )
     return (result.recordset as Array<{ total: number }>)[0]!.total
   }
@@ -239,68 +267,15 @@ export class MssqlBridge implements Bridge {
       ? options.select.map(bracket).join(', ')
       : '*'
 
-    const params: unknown[] = []
-    let paramIdx = 1
-
-    // WHERE
-    const conditions: string[] = []
-    if (options.where) {
-      for (const [key, value] of Object.entries(options.where)) {
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, opVal] of Object.entries(ops)) {
-            switch (op) {
-              case '$eq':
-                conditions.push(`${bracket(key)} = @p${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$gt':
-                conditions.push(`${bracket(key)} > @p${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$gte':
-                conditions.push(`${bracket(key)} >= @p${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$lt':
-                conditions.push(`${bracket(key)} < @p${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$lte':
-                conditions.push(`${bracket(key)} <= @p${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$in': {
-                const vals = opVal as unknown[]
-                conditions.push(
-                  bracket(key) +
-                    ' IN (' +
-                    vals.map((_, i) => '@p' + (paramIdx + i)).join(',') +
-                    ')',
-                )
-                for (const v of vals) params.push(v)
-                paramIdx += vals.length
-                break
-              }
-              default:
-                throw new Error(`Unknown operator "${op}" on field "${key}"`)
-            }
-          }
-        } else {
-          conditions.push(`${bracket(key)} = @p${paramIdx}`)
-          params.push(value)
-          paramIdx++
-        }
-      }
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const built = buildWhereSql(options.where, MSSQL_WHERE_DIALECT, {
+      logicalOps: MSSQL_LOGICAL_OPS,
+      stringOps: MSSQL_STRING_OPS,
+      bridge: MSSQL_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const params: unknown[] = [...built.params]
+    let paramIdx = built.nextSlot
 
     // ORDER BY
     let orderByClause = ''
@@ -326,10 +301,8 @@ export class MssqlBridge implements Bridge {
       if (parts.length > 0) orderByClause = `ORDER BY ${parts.join(', ')}`
     }
 
-    // Track where params length for count query
-    const whereParamCount = params.length
-
-    // LIMIT / OFFSET (MSSQL uses OFFSET ... FETCH NEXT ... ROWS ONLY)
+    // LIMIT / OFFSET (MSSQL uses OFFSET ... FETCH NEXT ... ROWS ONLY).
+    // Slot-based placeholders so we continue from `built.nextSlot`.
     let paginationClause = ''
     if (options.limit != null || options.offset != null) {
       const offset = options.offset ?? 0
@@ -357,11 +330,10 @@ export class MssqlBridge implements Bridge {
       .join(' ')
 
     const countSql = `SELECT COUNT(*) as total FROM ${bracket(table)} ${whereClause}`
-    const countParams = params.slice(0, whereParamCount)
 
     const [dataResult, countResult] = await Promise.all([
       this.runQuery(querySql, params),
-      this.runQuery(countSql, countParams),
+      this.runQuery(countSql, built.params),
     ])
 
     return {

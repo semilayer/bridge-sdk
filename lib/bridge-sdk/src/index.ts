@@ -4,15 +4,33 @@ export type {
   BridgeConstructor,
   BridgeCapabilities,
   BatchReadOptions,
+  CountOptions,
   ReadOptions,
   ReadResult,
   QueryOptions,
   QueryResult,
+  WhereClause,
+  FieldOps,
+  WhereLogicalOp,
+  WhereStringOp,
 } from '@semilayer/core'
 
-export { DEFAULT_BRIDGE_CAPABILITIES, resolveBridgeCapabilities } from '@semilayer/core'
+export {
+  DEFAULT_BRIDGE_CAPABILITIES,
+  resolveBridgeCapabilities,
+  WHERE_LOGICAL_OPS,
+  WHERE_STRING_OPS,
+} from '@semilayer/core'
 
 export { MockBridge } from './mock-bridge.js'
+export { UnsupportedOperatorError } from './errors.js'
+
+export { buildWhereSql, assertSupportedOps } from './sql-where.js'
+export type {
+  WhereSqlDialect,
+  BuildWhereOptions,
+  BuiltWhereSql,
+} from './sql-where.js'
 
 // Test-harness exports (createBridgeTestSuite, runAggregateCompliance,
 // aggregateFixture, etc.) live in a separate entry point —

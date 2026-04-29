@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { CockroachdbBridge } from './bridge.js'
 
 // ---------------------------------------------------------------------------
@@ -252,7 +253,80 @@ describe('CockroachdbBridge', () => {
 
       await expect(
         bridge.query('items', { where: { age: { $invalid: 1 } } }),
-      ).rejects.toThrow('Unknown operator "$invalid"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('builds WHERE with $or logical operator', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      await bridge.query('items', {
+        where: {
+          $or: [{ status: 'active' }, { status: 'pending' }],
+        },
+      })
+
+      const dataCall = mockPoolQuery.mock.calls[0]!
+      // Either branch should produce two parameterized equality predicates
+      // OR'd together. The exact SQL is dialect-dependent — just verify the
+      // OR keyword + both placeholders are present.
+      expect(dataCall[0]).toMatch(/OR/)
+      expect(dataCall[0]).toContain('"status"')
+      expect(dataCall[1]).toEqual(['active', 'pending'])
+    })
+
+    it('builds WHERE with $not logical operator', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      await bridge.query('items', {
+        where: {
+          $not: { status: 'archived' },
+        },
+      })
+
+      const dataCall = mockPoolQuery.mock.calls[0]!
+      expect(dataCall[0]).toMatch(/NOT/)
+      expect(dataCall[0]).toContain('"status"')
+      expect(dataCall[1]).toEqual(['archived'])
+    })
+
+    it('builds WHERE with $ilike using native ILIKE', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      await bridge.query('items', {
+        where: { name: { $ilike: '%foo%' } },
+      })
+
+      const dataCall = mockPoolQuery.mock.calls[0]!
+      expect(dataCall[0]).toContain('"name" ILIKE $1')
+      expect(dataCall[1]).toEqual(['%foo%'])
+    })
+  })
+
+  describe('count() with where', () => {
+    it('builds count(*) with WHERE clause from options.where', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedCountResult(7)
+
+      const total = await bridge.count('items', {
+        where: { status: 'active' },
+      })
+      expect(total).toBe(7)
+
+      const call = mockPoolQuery.mock.calls[0]!
+      expect(call[0]).toContain('count(*)::int AS total')
+      expect(call[0]).toContain('"items"')
+      expect(call[0]).toContain('"status" = $1')
+      expect(call[1]).toEqual(['active'])
     })
 
     it('builds ORDER BY clause', async () => {

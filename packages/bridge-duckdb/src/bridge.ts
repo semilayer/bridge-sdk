@@ -11,6 +11,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   QueryOptions,
   QueryResult,
   ReadOptions,
@@ -19,6 +20,7 @@ import type {
 } from '@semilayer/core'
 import {
   buildAggregateSql,
+  buildWhereSql,
   executeAggregateQueries,
   DUCKDB_DIALECT,
   DUCKDB_CAPABILITIES,
@@ -26,7 +28,20 @@ import {
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
+
+// DuckDB where dialect — double-quoted identifiers, `?` positional binds,
+// native `ILIKE`. DuckDB's LIKE supports `ESCAPE '\'` so the helper default
+// works without any overrides.
+const DUCK_WHERE_DIALECT: WhereSqlDialect = {
+  quoteIdent: (n) => `"${n.replace(/"/g, '""')}"`,
+  placeholder: () => '?',
+}
+
+const DUCK_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const DUCK_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const DUCK_BRIDGE_NAME = '@semilayer/bridge-duckdb'
 
 type DuckDB = typeof DuckDBTypes
 
@@ -112,6 +127,9 @@ export class DuckdbBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: DUCK_LOGICAL_OPS,
+    whereStringOps: DUCK_STRING_OPS,
+    exactCount: true,
   }
 
   static manifest: BridgeManifest = {
@@ -219,9 +237,20 @@ export class DuckdbBridge implements Bridge {
     return { rows, nextCursor, total }
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
     const conn = this.assertConn()
-    const rows = await allRows(conn, `SELECT count(*) as total FROM ${quote(target)}`)
+    const built = buildWhereSql(options?.where, DUCK_WHERE_DIALECT, {
+      logicalOps: DUCK_LOGICAL_OPS,
+      stringOps: DUCK_STRING_OPS,
+      bridge: DUCK_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const rows = await allRows(
+      conn,
+      `SELECT count(*) as total FROM ${quote(target)} ${whereClause}`,
+      built.params,
+    )
     return Number((rows[0] as Record<string, unknown>)?.['total'] ?? 0)
   }
 
@@ -264,56 +293,14 @@ export class DuckdbBridge implements Bridge {
 
     const selectClause = options.select ? options.select.map(quote).join(', ') : '*'
 
-    const params: unknown[] = []
-    const conditions: string[] = []
-
-    // WHERE
-    if (options.where) {
-      for (const [key, value] of Object.entries(options.where)) {
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, opVal] of Object.entries(ops)) {
-            switch (op) {
-              case '$eq':
-                conditions.push(`${quote(key)} = ?`)
-                params.push(opVal)
-                break
-              case '$gt':
-                conditions.push(`${quote(key)} > ?`)
-                params.push(opVal)
-                break
-              case '$gte':
-                conditions.push(`${quote(key)} >= ?`)
-                params.push(opVal)
-                break
-              case '$lt':
-                conditions.push(`${quote(key)} < ?`)
-                params.push(opVal)
-                break
-              case '$lte':
-                conditions.push(`${quote(key)} <= ?`)
-                params.push(opVal)
-                break
-              case '$in':
-                if (Array.isArray(opVal) && opVal.length > 0) {
-                  const placeholders = opVal.map(() => '?').join(', ')
-                  conditions.push(`${quote(key)} IN (${placeholders})`)
-                  params.push(...(opVal as unknown[]))
-                }
-                break
-              default:
-                throw new Error(`Unknown operator "${op}" on field "${key}"`)
-            }
-          }
-        } else {
-          conditions.push(`${quote(key)} = ?`)
-          params.push(value)
-        }
-      }
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const built = buildWhereSql(options.where, DUCK_WHERE_DIALECT, {
+      logicalOps: DUCK_LOGICAL_OPS,
+      stringOps: DUCK_STRING_OPS,
+      bridge: DUCK_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const params: unknown[] = [...built.params]
 
     // ORDER BY
     let orderByClause = ''

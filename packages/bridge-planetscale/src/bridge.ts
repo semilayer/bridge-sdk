@@ -5,6 +5,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   QueryOptions,
   QueryResult,
   ReadOptions,
@@ -12,6 +13,7 @@ import type {
 } from '@semilayer/core'
 import {
   buildAggregateSql,
+  buildWhereSql,
   executeAggregateQueries,
   MYSQL_DIALECT,
   MYSQL_FAMILY_CAPABILITIES,
@@ -19,9 +21,22 @@ import {
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
 
 const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
+
+// MySQL where dialect — backtick identifiers, `?` placeholders, and
+// `LOWER(col) LIKE LOWER(?)` for `$ilike` (PlanetScale = MySQL).
+const MYSQL_WHERE_DIALECT: WhereSqlDialect = {
+  quoteIdent: (n) => '`' + n.replace(/`/g, '``') + '`',
+  placeholder: () => '?',
+  ilike: (col, p) => `LOWER(${col}) LIKE LOWER(${p})`,
+}
+
+const MYSQL_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const MYSQL_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const PLANETSCALE_BRIDGE_NAME = '@semilayer/bridge-planetscale'
 
 export interface PlanetscaleBridgeConfig {
   url?: string
@@ -41,6 +56,9 @@ export class PlanetscaleBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: MYSQL_LOGICAL_OPS,
+    whereStringOps: MYSQL_STRING_OPS,
+    exactCount: true,
   }
 
   private conn: Connection | null = null
@@ -139,12 +157,19 @@ export class PlanetscaleBridge implements Bridge {
     return { rows, nextCursor, total }
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
     const conn = this.assertConn()
     assertTableName(target)
+    const built = buildWhereSql(options?.where, MYSQL_WHERE_DIALECT, {
+      logicalOps: MYSQL_LOGICAL_OPS,
+      stringOps: MYSQL_STRING_OPS,
+      bridge: PLANETSCALE_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
     const result = await conn.execute(
-      `SELECT COUNT(*) as total FROM ${bt(target)}`,
-      [],
+      `SELECT COUNT(*) as total FROM ${bt(target)} ${whereClause}`,
+      built.params,
     )
     return (result.rows as Array<{ total: number }>)[0]!.total
   }
@@ -191,54 +216,13 @@ export class PlanetscaleBridge implements Bridge {
       ? options.select.map(bt).join(', ')
       : '*'
 
-    const params: unknown[] = []
-    const conditions: string[] = []
-
-    if (options.where) {
-      for (const [key, value] of Object.entries(options.where)) {
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, opVal] of Object.entries(ops)) {
-            switch (op) {
-              case '$eq':
-                conditions.push(`${bt(key)} = ?`)
-                params.push(opVal)
-                break
-              case '$gt':
-                conditions.push(`${bt(key)} > ?`)
-                params.push(opVal)
-                break
-              case '$gte':
-                conditions.push(`${bt(key)} >= ?`)
-                params.push(opVal)
-                break
-              case '$lt':
-                conditions.push(`${bt(key)} < ?`)
-                params.push(opVal)
-                break
-              case '$lte':
-                conditions.push(`${bt(key)} <= ?`)
-                params.push(opVal)
-                break
-              case '$in': {
-                const vals = opVal as unknown[]
-                conditions.push(`${bt(key)} IN (${vals.map(() => '?').join(',')})`)
-                for (const v of vals) params.push(v)
-                break
-              }
-              default:
-                throw new Error(`Unknown operator "${op}" on field "${key}"`)
-            }
-          }
-        } else {
-          conditions.push(`${bt(key)} = ?`)
-          params.push(value)
-        }
-      }
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const built = buildWhereSql(options.where, MYSQL_WHERE_DIALECT, {
+      logicalOps: MYSQL_LOGICAL_OPS,
+      stringOps: MYSQL_STRING_OPS,
+      bridge: PLANETSCALE_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
 
     let orderByClause = ''
     if (options.orderBy) {
@@ -259,6 +243,8 @@ export class PlanetscaleBridge implements Bridge {
       if (parts.length > 0) orderByClause = `ORDER BY ${parts.join(', ')}`
     }
 
+    // LIMIT / OFFSET — appended after WHERE params. PlanetScale uses `?`
+    // for every slot so `built.nextSlot` is irrelevant.
     const limitParams: unknown[] = []
     let limitClause = ''
     if (options.limit != null) {
@@ -272,7 +258,7 @@ export class PlanetscaleBridge implements Bridge {
       limitParams.push(options.offset)
     }
 
-    const allParams = [...params, ...limitParams]
+    const allParams = [...built.params, ...limitParams]
     const sql = [
       `SELECT ${selectClause} FROM ${bt(target)}`,
       whereClause,
@@ -287,7 +273,7 @@ export class PlanetscaleBridge implements Bridge {
 
     const [dataResult, countResult] = await Promise.all([
       conn.execute(sql, allParams),
-      conn.execute(countSql, params),
+      conn.execute(countSql, built.params),
     ])
 
     return {

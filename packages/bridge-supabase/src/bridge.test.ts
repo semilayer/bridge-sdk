@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { SupabaseBridge } from './bridge.js'
 
 const mockQueryResult = vi.fn()
@@ -114,6 +115,19 @@ describe('SupabaseBridge', () => {
 
       mockQueryResult.mockResolvedValueOnce({ data: null, error: { message: 'Table not found' }, count: null })
       await expect(bridge.count('nonexistent')).rejects.toThrow('Table not found')
+    })
+
+    it('count(target, {where}) chains eq() before head request', async () => {
+      seedResult([])
+
+      const bridge = new SupabaseBridge({ url: 'https://x.supabase.co', key: 'anon' })
+      await bridge.connect()
+
+      seedResult([], 4)
+      const n = await bridge.count('users', { where: { status: { $eq: 'active' } } })
+
+      expect(n).toBe(4)
+      expect(mockBuilder.eq).toHaveBeenCalledWith('status', 'active')
     })
   })
 
@@ -258,7 +272,7 @@ describe('SupabaseBridge', () => {
       expect(mockBuilder.eq).toHaveBeenCalledWith('active', true)
     })
 
-    it('throws on unknown operator', async () => {
+    it('throws UnsupportedOperatorError on unknown operator', async () => {
       seedResult([])
 
       const bridge = new SupabaseBridge({ url: 'https://x.supabase.co', key: 'anon' })
@@ -266,7 +280,20 @@ describe('SupabaseBridge', () => {
 
       await expect(
         bridge.query('users', { where: { name: { $regex: 'Al' } } }),
-      ).rejects.toThrow('Unknown operator "$regex" on field "name"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('throws UnsupportedOperatorError on $or (logical op not declared)', async () => {
+      seedResult([])
+
+      const bridge = new SupabaseBridge({ url: 'https://x.supabase.co', key: 'anon' })
+      await bridge.connect()
+
+      await expect(
+        bridge.query('users', {
+          where: { $or: [{ status: 'active' }, { status: 'pending' }] },
+        }),
+      ).rejects.toThrow(UnsupportedOperatorError)
     })
 
     it('applies orderBy', async () => {
