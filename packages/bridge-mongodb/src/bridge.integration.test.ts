@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { MongoClient, type Db } from 'mongodb'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { MongodbBridge } from './bridge.js'
 
 const DATABASE_URL = process.env['DATABASE_URL']
@@ -248,7 +249,7 @@ describe.skipIf(!DATABASE_URL)('MongodbBridge integration', () => {
   it('query() throws on unknown operators', async () => {
     await expect(
       bridge.query(COLLECTION, { where: { user: { $regex: '^a' } } }),
-    ).rejects.toThrow('Unknown operator')
+    ).rejects.toThrow(UnsupportedOperatorError)
   })
 
   // -------------------------------------------------------------------------
