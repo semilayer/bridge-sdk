@@ -7,6 +7,7 @@ import type {
   BridgeCapabilities,
   BridgeManifest,
   BridgeRow,
+  CountOptions,
   ReadOptions,
   ReadResult,
   QueryOptions,
@@ -19,12 +20,29 @@ import {
   POSTGRES_AGGREGATE_CAPABILITIES,
 } from './aggregate.js'
 import {
+  buildWhereSql,
   executeAggregateQueries,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
+
+// Postgres where dialect — `$N` placeholders, native ILIKE, and the
+// efficient `= ANY($1)` form for `$in` (one param slot for an arbitrary
+// list, faster than expanding to N placeholders for large arrays).
+const PG_WHERE_DIALECT: WhereSqlDialect = {
+  quoteIdent: (n) => `"${n.replace(/"/g, '""')}"`,
+  placeholder: (i) => `$${i}`,
+  inUsesArrayParam: true,
+  inList: (col, [ph]) => `${col} = ANY(${ph})`,
+  notInList: (col, [ph]) => `${col} <> ALL(${ph})`,
+}
+
+const PG_LOGICAL_OPS = ['or', 'and', 'not'] as const
+const PG_STRING_OPS = ['ilike', 'contains', 'startsWith', 'endsWith'] as const
+const PG_BRIDGE_NAME = '@semilayer/bridge-postgres'
 
 const IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/
 
@@ -115,6 +133,9 @@ export class PostgresBridge implements Bridge {
     cursor: true,
     changedSince: true,
     perKeyLimit: false,
+    whereLogicalOps: PG_LOGICAL_OPS,
+    whereStringOps: PG_STRING_OPS,
+    exactCount: true,
   }
 
   static manifest: BridgeManifest = {
@@ -254,12 +275,20 @@ export class PostgresBridge implements Bridge {
     return { rows, nextCursor, total }
   }
 
-  async count(target: string): Promise<number> {
+  async count(target: string, options?: CountOptions): Promise<number> {
     const pool = this.assertPool()
     const qualified = quoteTable(parseQualifiedTable(target))
 
+    const built = buildWhereSql(options?.where, PG_WHERE_DIALECT, {
+      logicalOps: PG_LOGICAL_OPS,
+      stringOps: PG_STRING_OPS,
+      bridge: PG_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
     const result = await pool.query(
-      `SELECT count(*)::int AS total FROM ${qualified}`,
+      `SELECT count(*)::int AS total FROM ${qualified} ${whereClause}`,
+      built.params,
     )
     return (result.rows as Array<{ total: number }>)[0]!.total
   }
@@ -283,66 +312,17 @@ export class PostgresBridge implements Bridge {
       ? options.select.map(quote).join(', ')
       : '*'
 
-    const params: unknown[] = []
-    let paramIdx = 1
+    const built = buildWhereSql(options.where, PG_WHERE_DIALECT, {
+      logicalOps: PG_LOGICAL_OPS,
+      stringOps: PG_STRING_OPS,
+      bridge: PG_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const params = [...built.params]
+    let paramIdx = built.nextSlot
 
-    // WHERE
-    const conditions: string[] = []
-    if (options.where) {
-      for (const [key, value] of Object.entries(options.where)) {
-        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-          const ops = value as Record<string, unknown>
-          for (const [op, opVal] of Object.entries(ops)) {
-            switch (op) {
-              case '$eq':
-                conditions.push(`${quote(key)} = $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$gt':
-                conditions.push(`${quote(key)} > $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$gte':
-                conditions.push(`${quote(key)} >= $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$lt':
-                conditions.push(`${quote(key)} < $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$lte':
-                conditions.push(`${quote(key)} <= $${paramIdx}`)
-                params.push(opVal)
-                paramIdx++
-                break
-              case '$in':
-                conditions.push(
-                  `${quote(key)} = ANY($${paramIdx})`,
-                )
-                params.push(opVal)
-                paramIdx++
-                break
-              default:
-                throw new Error(`Unknown operator "${op}" on field "${key}"`)
-            }
-          }
-        } else {
-          conditions.push(`${quote(key)} = $${paramIdx}`)
-          params.push(value)
-          paramIdx++
-        }
-      }
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
-
-    // ORDER BY
-    // Accepts canonical { field, dir? } or record shorthand { col: dir, col2: dir }.
+    // ORDER BY — canonical { field, dir? } or record shorthand { col: dir }.
     let orderByClause = ''
     if (options.orderBy) {
       const raw = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy]
@@ -350,10 +330,8 @@ export class PostgresBridge implements Bridge {
       for (const clause of raw) {
         const obj = clause as unknown as Record<string, unknown>
         if (typeof obj.field === 'string') {
-          // Canonical: { field: 'id', dir: 'asc' }
           parts.push(`${quote(obj.field)} ${obj.dir === 'desc' ? 'DESC' : 'ASC'}`)
         } else {
-          // Shorthand: { id: 'asc', name: 'desc' }
           for (const [col, dir] of Object.entries(obj)) {
             if (dir === 'asc' || dir === 'desc') {
               parts.push(`${quote(col)} ${dir === 'desc' ? 'DESC' : 'ASC'}`)
@@ -389,13 +367,12 @@ export class PostgresBridge implements Bridge {
       .filter(Boolean)
       .join(' ')
 
-    // Get total count (with same WHERE, without LIMIT/OFFSET)
+    // Count uses the same WHERE params (no LIMIT/OFFSET).
     const countSql = `SELECT count(*)::int AS total FROM ${qualified} ${whereClause}`
-    const countParams = options.where ? params.slice(0, conditions.length) : []
 
     const [dataResult, countResult] = await Promise.all([
       pool.query(sql, params),
-      pool.query(countSql, countParams),
+      pool.query(countSql, built.params),
     ])
 
     return {
@@ -423,57 +400,15 @@ export class PostgresBridge implements Bridge {
         ? '*'
         : options.select.map(quote).join(', ')
 
-    const params: unknown[] = []
-    let paramIdx = 1
-
-    const conditions: string[] = []
-    for (const [key, value] of Object.entries(options.where)) {
-      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-        for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
-          switch (op) {
-            case '$eq':
-              conditions.push(`${quote(key)} = $${paramIdx}`)
-              params.push(opVal)
-              paramIdx++
-              break
-            case '$gt':
-              conditions.push(`${quote(key)} > $${paramIdx}`)
-              params.push(opVal)
-              paramIdx++
-              break
-            case '$gte':
-              conditions.push(`${quote(key)} >= $${paramIdx}`)
-              params.push(opVal)
-              paramIdx++
-              break
-            case '$lt':
-              conditions.push(`${quote(key)} < $${paramIdx}`)
-              params.push(opVal)
-              paramIdx++
-              break
-            case '$lte':
-              conditions.push(`${quote(key)} <= $${paramIdx}`)
-              params.push(opVal)
-              paramIdx++
-              break
-            case '$in':
-              conditions.push(`${quote(key)} = ANY($${paramIdx})`)
-              params.push(opVal)
-              paramIdx++
-              break
-            default:
-              throw new Error(`Unknown operator "${op}" on field "${key}"`)
-          }
-        }
-      } else {
-        conditions.push(`${quote(key)} = $${paramIdx}`)
-        params.push(value)
-        paramIdx++
-      }
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const built = buildWhereSql(options.where, PG_WHERE_DIALECT, {
+      logicalOps: PG_LOGICAL_OPS,
+      stringOps: PG_STRING_OPS,
+      bridge: PG_BRIDGE_NAME,
+      target,
+    })
+    const whereClause = built.sql ? `WHERE ${built.sql}` : ''
+    const params = [...built.params]
+    let paramIdx = built.nextSlot
 
     let orderByClause = ''
     if (options.orderBy) {

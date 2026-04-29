@@ -25,6 +25,13 @@ export {
 export { MockBridge } from './mock-bridge.js'
 export { UnsupportedOperatorError } from './errors.js'
 
+export { buildWhereSql, assertSupportedOps } from './sql-where.js'
+export type {
+  WhereSqlDialect,
+  BuildWhereOptions,
+  BuiltWhereSql,
+} from './sql-where.js'
+
 // Test-harness exports (createBridgeTestSuite, runAggregateCompliance,
 // aggregateFixture, etc.) live in a separate entry point —
 // `@semilayer/bridge-sdk/testing` — to keep `vitest` out of the runtime

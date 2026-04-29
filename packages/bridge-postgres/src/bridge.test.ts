@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnsupportedOperatorError } from '@semilayer/bridge-sdk'
 import { PostgresBridge, buildPoolConfig } from './bridge.js'
 
 // ---------------------------------------------------------------------------
@@ -401,14 +402,92 @@ describe('PostgresBridge', () => {
       expect(dataCall[0]).toContain('"status" = ANY($1)')
     })
 
-    it('throws on unknown operator', async () => {
+    it('throws UnsupportedOperatorError on unknown operator', async () => {
       const bridge = await createConnectedBridge()
 
       await expect(
         bridge.query('items', {
           where: { age: { $invalid: 1 } },
         }),
-      ).rejects.toThrow('Unknown operator "$invalid"')
+      ).rejects.toThrow(UnsupportedOperatorError)
+    })
+
+    it('builds WHERE with $or logical combinator', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      await bridge.query('items', {
+        where: { $or: [{ status: 'active' }, { status: 'past_due' }] },
+      })
+
+      const dataCall = mockPoolQuery.mock.calls[0]!
+      expect(dataCall[0]).toContain(' OR ')
+      expect(dataCall[1]).toEqual(['active', 'past_due'])
+    })
+
+    it('builds WHERE with $not negation', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      await bridge.query('items', { where: { $not: { status: 'archived' } } })
+
+      const dataCall = mockPoolQuery.mock.calls[0]!
+      expect(dataCall[0]).toContain('NOT')
+      expect(dataCall[1]).toEqual(['archived'])
+    })
+
+    it('builds WHERE with $ilike using native ILIKE', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      await bridge.query('items', {
+        where: { name: { $ilike: 'pasta%' } },
+      })
+
+      const dataCall = mockPoolQuery.mock.calls[0]!
+      expect(dataCall[0]).toContain('ILIKE')
+      expect(dataCall[1]![0]).toBe('pasta%')
+    })
+
+    it('escapes literal % / _ in $contains', async () => {
+      const bridge = await createConnectedBridge()
+
+      seedSelectResult([])
+      seedCountResult(0)
+
+      await bridge.query('items', {
+        where: { discount: { $contains: '50%_off' } },
+      })
+
+      const dataCall = mockPoolQuery.mock.calls[0]!
+      expect(dataCall[1]![0]).toBe('%50\\%\\_off%')
+    })
+  })
+
+  describe('count(target, options)', () => {
+    it('counts all rows when called without options (back-compat)', async () => {
+      const bridge = await createConnectedBridge()
+      seedCountResult(42)
+      expect(await bridge.count('items')).toBe(42)
+    })
+
+    it('counts with $or where', async () => {
+      const bridge = await createConnectedBridge()
+      seedCountResult(7)
+      const n = await bridge.count('items', {
+        where: { $or: [{ status: 'a' }, { status: 'b' }] },
+      })
+      expect(n).toBe(7)
+      const call = mockPoolQuery.mock.calls[0]!
+      expect(call[0]).toContain('count(*)')
+      expect(call[0]).toContain('OR')
+      expect(call[1]).toEqual(['a', 'b'])
     })
 
     it('builds ORDER BY clause', async () => {
