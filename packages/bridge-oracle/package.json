@@ -1,6 +1,6 @@
 {
   "name": "@semilayer/bridge-oracle",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "SemiLayer Oracle Bridge — first-party adapter for connecting SemiLayer to Oracle Database",
   "keywords": [
     "semilayer",
