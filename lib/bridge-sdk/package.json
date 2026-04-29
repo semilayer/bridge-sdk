@@ -46,7 +46,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@semilayer/core": "^0.1.7"
+    "@semilayer/core": "^0.1.27"
   },
   "peerDependencies": {
     "vitest": ">=2.0.0"

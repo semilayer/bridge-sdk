@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import type { Bridge, BridgeRow } from '@semilayer/core'
+import type { Bridge, BridgeRow, WhereClause } from '@semilayer/core'
 import { resolveBridgeCapabilities } from '@semilayer/core'
 import { runAggregateCompliance } from './aggregate-suite.js'
+import { MockBridge } from './mock-bridge.js'
+import { UnsupportedOperatorError } from './errors.js'
 
 export interface BridgeTestSuiteOptions {
   factory: () => Bridge
@@ -9,6 +11,14 @@ export interface BridgeTestSuiteOptions {
     target: string
     rows: BridgeRow[]
     primaryKey: string
+    /**
+     * Optional: a string column on the seed rows used by the where
+     * compliance suite to exercise `$ilike` / `$contains` /
+     * `$startsWith` / `$endsWith`. Default `'name'` — the SDK's
+     * MockBridge fixture uses that column. Override when your seed
+     * names the column differently.
+     */
+     stringColumn?: string
   }
   beforeSeed?: (bridge: Bridge) => Promise<void>
   afterCleanup?: (bridge: Bridge) => Promise<void>
@@ -237,5 +247,284 @@ export function createBridgeTestSuite(opts: BridgeTestSuiteOptions): void {
         expect(rows.length).toBeLessThanOrEqual(2)
       })
     })
+
+    // ─── count(target, { where }) ─────────────────────────────────────
+    //
+    // The optional `where` predicate on `count()` is new — the old
+    // single-arg signature is preserved for back-compat. We only run
+    // these when the bridge has declared `exactCount` on its capabilities
+    // (which signals new-API awareness). Pre-update bridges that haven't
+    // adopted the new interface skip the block; the existing
+    // `count() returns correct total` test above still covers them.
+
+    describe('count(target, { where })', () => {
+      it('counts all rows when options omitted (back-compat)', async () => {
+        const n = await bridge.count(seed.target)
+        expect(n).toBe(seed.rows.length)
+      })
+
+      it('counts all rows when given empty where', async () => {
+        if (!hasNewFlags(bridge)) return
+        const n = await bridge.count(seed.target, {})
+        expect(n).toBe(seed.rows.length)
+      })
+
+      it('counts rows matching a primary-key where', async () => {
+        if (!hasNewFlags(bridge)) return
+        const pk = seed.primaryKey
+        const pkVal = seed.rows[0]![pk]
+        const oracle = makeOracle(seed.target, seed.rows)
+        const expected = await oracle.count(seed.target, { where: { [pk]: pkVal } })
+        const actual = await bridge.count(seed.target, { where: { [pk]: pkVal } })
+        const caps = resolveBridgeCapabilities(bridge)
+        if (caps.exactCount) {
+          expect(actual).toBe(expected)
+        } else {
+          // Loose tolerance for estimating engines — within ±50% or ±5
+          // (whichever is larger) is "in the ballpark" for a small fixture.
+          const tol = Math.max(5, Math.ceil(expected * 0.5))
+          expect(Math.abs(actual - expected)).toBeLessThanOrEqual(tol)
+        }
+      })
+    })
+
+    // ─── where compliance — logical + string ops ──────────────────────
+    //
+    // Each test computes the expected row set via MockBridge (the oracle)
+    // over the same seed.rows, then asks the bridge under test to run the
+    // same query. Tests are gated on `BridgeCapabilities.whereLogicalOps`
+    // / `whereStringOps` — bridges that decline an operator skip the
+    // body, and a final block asserts that calling a declared-unsupported
+    // operator throws `UnsupportedOperatorError` rather than silently
+    // returning wrong results.
+    //
+    // Bridges that haven't adopted the new capability flags at all
+    // (pre-update) skip this block entirely — the suite is opt-in via
+    // declaration. Once a bridge sets `whereLogicalOps` / `whereStringOps`
+    // / `exactCount` in its `capabilities` object, the full suite runs.
+    runWhereCompliance({
+      describe,
+      it,
+      expect,
+      getBridge: () => bridge,
+      seed,
+    })
   })
+}
+
+/**
+ * A bridge has "adopted" the new where + count interface if its declared
+ * capabilities include any of the new flags. Used to gate the new
+ * compliance blocks during the staged rollout — pre-update bridges keep
+ * their existing test surface, post-update bridges get the full suite.
+ */
+function hasNewFlags(bridge: Bridge): boolean {
+  const declared = bridge.capabilities ?? {}
+  return (
+    'whereLogicalOps' in declared ||
+    'whereStringOps' in declared ||
+    'exactCount' in declared
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Where compliance — logical + string ops, oracle-driven via MockBridge
+// ---------------------------------------------------------------------------
+
+interface WhereComplianceOpts {
+  describe: typeof describe
+  it: typeof it
+  expect: typeof expect
+  getBridge: () => Bridge
+  seed: BridgeTestSuiteOptions['seed']
+}
+
+function runWhereCompliance(opts: WhereComplianceOpts): void {
+  const { getBridge, seed } = opts
+  const stringColumn = seed.stringColumn ?? 'name'
+
+  opts.describe('where compliance — logical operators', () => {
+    opts.it('$or returns union of matching rows', async () => {
+      const bridge = getBridge()
+      if (!bridge.query) return
+      if (!hasNewFlags(bridge)) return
+      const caps = resolveBridgeCapabilities(bridge)
+      if (!caps.whereLogicalOps.includes('or')) {
+        await expectThrowsUnsupported(bridge, seed.target, {
+          $or: [
+            { [seed.primaryKey]: seed.rows[0]![seed.primaryKey] },
+            { [seed.primaryKey]: seed.rows[1]![seed.primaryKey] },
+          ],
+        })
+        return
+      }
+      const where: WhereClause = {
+        $or: [
+          { [seed.primaryKey]: seed.rows[0]![seed.primaryKey] },
+          { [seed.primaryKey]: seed.rows[1]![seed.primaryKey] },
+        ],
+      }
+      await assertSameRows(bridge, seed, where)
+    })
+
+    opts.it('$and returns rows satisfying all clauses', async () => {
+      const bridge = getBridge()
+      if (!bridge.query) return
+      if (!hasNewFlags(bridge)) return
+      const caps = resolveBridgeCapabilities(bridge)
+      const pk = seed.primaryKey
+      const sample = seed.rows[0]!
+      const where: WhereClause = {
+        $and: [{ [pk]: sample[pk] }, { [pk]: sample[pk] }],
+      }
+      if (!caps.whereLogicalOps.includes('and')) {
+        await expectThrowsUnsupported(bridge, seed.target, where)
+        return
+      }
+      await assertSameRows(bridge, seed, where)
+    })
+
+    opts.it('$not returns rows not matching the nested clause', async () => {
+      const bridge = getBridge()
+      if (!bridge.query) return
+      if (!hasNewFlags(bridge)) return
+      const caps = resolveBridgeCapabilities(bridge)
+      const pk = seed.primaryKey
+      const where: WhereClause = {
+        $not: { [pk]: seed.rows[0]![pk] },
+      }
+      if (!caps.whereLogicalOps.includes('not')) {
+        await expectThrowsUnsupported(bridge, seed.target, where)
+        return
+      }
+      await assertSameRows(bridge, seed, where)
+    })
+
+    opts.it('nested combinators ($or of $and / $not) match oracle', async () => {
+      const bridge = getBridge()
+      if (!bridge.query) return
+      if (!hasNewFlags(bridge)) return
+      const caps = resolveBridgeCapabilities(bridge)
+      const supportsAll =
+        caps.whereLogicalOps.includes('or') &&
+        caps.whereLogicalOps.includes('and') &&
+        caps.whereLogicalOps.includes('not')
+      if (!supportsAll) return
+      const pk = seed.primaryKey
+      const where: WhereClause = {
+        $or: [
+          { [pk]: seed.rows[0]![pk] },
+          { $and: [{ [pk]: seed.rows[1]![pk] }, { $not: { [pk]: seed.rows[0]![pk] } }] },
+        ],
+      }
+      await assertSameRows(bridge, seed, where)
+    })
+  })
+
+  opts.describe('where compliance — string operators', () => {
+    const probeRow = seed.rows.find((r) => typeof r[stringColumn] === 'string')
+
+    opts.it('$ilike matches case-insensitively with % wildcard', async () => {
+      const bridge = getBridge()
+      if (!bridge.query) return
+      if (!probeRow) return
+      if (!hasNewFlags(bridge)) return
+      const caps = resolveBridgeCapabilities(bridge)
+      const value = probeRow[stringColumn] as string
+      // First two characters as a prefix probe.
+      const prefix = value.slice(0, 2).toUpperCase()
+      const where: WhereClause = { [stringColumn]: { $ilike: `${prefix}%` } }
+      if (!caps.whereStringOps.includes('ilike')) {
+        await expectThrowsUnsupported(bridge, seed.target, where)
+        return
+      }
+      await assertSameRows(bridge, seed, where)
+    })
+
+    opts.it('$contains matches case-insensitive substring', async () => {
+      const bridge = getBridge()
+      if (!bridge.query) return
+      if (!probeRow) return
+      if (!hasNewFlags(bridge)) return
+      const caps = resolveBridgeCapabilities(bridge)
+      const value = probeRow[stringColumn] as string
+      const middle = value.slice(0, Math.max(1, Math.floor(value.length / 2))).toUpperCase()
+      const where: WhereClause = { [stringColumn]: { $contains: middle } }
+      if (!caps.whereStringOps.includes('contains')) {
+        await expectThrowsUnsupported(bridge, seed.target, where)
+        return
+      }
+      await assertSameRows(bridge, seed, where)
+    })
+
+    opts.it('$startsWith matches case-insensitive prefix', async () => {
+      const bridge = getBridge()
+      if (!bridge.query) return
+      if (!probeRow) return
+      if (!hasNewFlags(bridge)) return
+      const caps = resolveBridgeCapabilities(bridge)
+      const value = probeRow[stringColumn] as string
+      const prefix = value.slice(0, Math.max(1, Math.floor(value.length / 2))).toUpperCase()
+      const where: WhereClause = { [stringColumn]: { $startsWith: prefix } }
+      if (!caps.whereStringOps.includes('startsWith')) {
+        await expectThrowsUnsupported(bridge, seed.target, where)
+        return
+      }
+      await assertSameRows(bridge, seed, where)
+    })
+
+    opts.it('$endsWith matches case-insensitive suffix', async () => {
+      const bridge = getBridge()
+      if (!bridge.query) return
+      if (!probeRow) return
+      if (!hasNewFlags(bridge)) return
+      const caps = resolveBridgeCapabilities(bridge)
+      const value = probeRow[stringColumn] as string
+      const suffix = value.slice(-Math.max(1, Math.floor(value.length / 2))).toUpperCase()
+      const where: WhereClause = { [stringColumn]: { $endsWith: suffix } }
+      if (!caps.whereStringOps.includes('endsWith')) {
+        await expectThrowsUnsupported(bridge, seed.target, where)
+        return
+      }
+      await assertSameRows(bridge, seed, where)
+    })
+  })
+}
+
+/**
+ * Build an oracle bridge over the same seed rows. MockBridge declares the
+ * full operator surface, so its query() result is the canonical truth the
+ * bridge under test is compared against.
+ */
+function makeOracle(target: string, rows: BridgeRow[]): MockBridge {
+  const m = new MockBridge()
+  m.seed(target, rows)
+  void m.connect()
+  return m
+}
+
+async function assertSameRows(
+  bridge: Bridge,
+  seed: BridgeTestSuiteOptions['seed'],
+  where: WhereClause,
+): Promise<void> {
+  if (!bridge.query) return
+  const oracle = makeOracle(seed.target, seed.rows)
+  const expected = await oracle.query(seed.target, { where })
+  const actual = await bridge.query(seed.target, { where })
+  const expectedPks = new Set(expected.rows.map((r) => r[seed.primaryKey]))
+  const actualPks = new Set(actual.rows.map((r) => r[seed.primaryKey]))
+  expect(actualPks.size).toBe(expectedPks.size)
+  for (const pk of expectedPks) expect(actualPks.has(pk)).toBe(true)
+}
+
+async function expectThrowsUnsupported(
+  bridge: Bridge,
+  target: string,
+  where: WhereClause,
+): Promise<void> {
+  if (!bridge.query) return
+  await expect(bridge.query(target, { where })).rejects.toBeInstanceOf(
+    UnsupportedOperatorError,
+  )
 }
