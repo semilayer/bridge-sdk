@@ -15,12 +15,15 @@ import {
   buildAggregateSql,
   buildWhereSql,
   executeAggregateQueries,
+  mysqlGeohashExpr,
+  mysqlDecodeGeoField,
   MYSQL_DIALECT,
   MYSQL_FAMILY_CAPABILITIES,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type SqlAggregateDialect,
   type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
 
@@ -43,6 +46,13 @@ export interface PlanetscaleBridgeConfig {
   host?: string
   username?: string
   password?: string
+  /**
+   * Enable geohash bucket pushdown via MySQL 8 `ST_GeoHash`.
+   * PlanetScale ships MySQL 8.0+ so the function is available; default
+   * `false` to keep SQL output unchanged for callers that haven't
+   * opted in.
+   */
+  enableGeohash?: boolean
 }
 
 export class PlanetscaleBridge implements Bridge {
@@ -89,7 +99,7 @@ export class PlanetscaleBridge implements Bridge {
         'PlanetscaleBridge requires either a "url" or "host"+"username"+"password" config',
       )
     }
-    this.config = { url, host, username, password }
+    this.config = { url, host, username, password, enableGeohash: config['enableGeohash'] === true }
   }
 
   async connect(): Promise<void> {
@@ -175,7 +185,8 @@ export class PlanetscaleBridge implements Bridge {
   }
 
   aggregateCapabilities(): BridgeAggregateCapabilities {
-    return MYSQL_FAMILY_CAPABILITIES
+    if (!this.config.enableGeohash) return MYSQL_FAMILY_CAPABILITIES
+    return { ...MYSQL_FAMILY_CAPABILITIES, geoBucket: true, geohashBucket: true }
   }
 
   aggregate(
@@ -183,8 +194,11 @@ export class PlanetscaleBridge implements Bridge {
     _ctx?: BridgeExecutionContext,
   ): AsyncIterable<AggregateRow> {
     const conn = this.assertConn()
+    const dialect: SqlAggregateDialect = this.config.enableGeohash
+      ? { ...MYSQL_DIALECT, geohashExpr: mysqlGeohashExpr, decodeGeoField: mysqlDecodeGeoField }
+      : MYSQL_DIALECT
     return executeAggregateQueries(
-      buildAggregateSql(opts, MYSQL_DIALECT),
+      buildAggregateSql(opts, dialect),
       async (sql, params) => {
         const result = await conn.execute(sql, params as unknown[])
         return result.rows as Array<Record<string, unknown>>

@@ -27,16 +27,38 @@ export type AnalyzeTimeBucket =
   | 'year'
 
 /**
- * Bucket strategies a dim can request. Geo + semantic buckets are
- * reserved — bridges may declare support but the compliance suite
- * does not currently exercise them.
+ * Spatial input columns for a geo bucket. A caller supplies EITHER a
+ * `lat` + `lng` pair OR a single combined `geo` column (PostGIS-style
+ * geometry / geography or any wire format the dialect's
+ * `decodeGeoField` knows how to unpack). When neither is provided the
+ * bridge MUST reject at plan time.
+ */
+export interface GeoBucketFields {
+  /** Latitude column on the base target. */
+  latField?: string
+  /** Longitude column on the base target. */
+  lngField?: string
+  /**
+   * Single combined column on the base target. Bridges with a
+   * `decodeGeoField` dialect method unpack this into a (lat, lng) pair
+   * the geohash/h3 expression consumes. Bridges without such a method
+   * reject `geoField` configs at plan time.
+   */
+  geoField?: string
+}
+
+/**
+ * Bucket strategies a dim can request. `geohash` and `h3` push down
+ * onto engines that advertise `geohashBucket` / `h3Bucket` in their
+ * capabilities; bridges without native encoders fall through to
+ * service-side reduce. `semantic` is reserved.
  */
 export type DimensionBucket =
   | AnalyzeTimeBucket
   | { type: 'numeric'; step: number }
   | { type: 'numeric'; breaks: number[] }
-  | { type: 'geohash'; precision: number }
-  | { type: 'h3'; resolution: number }
+  | ({ type: 'geohash'; precision: number } & GeoBucketFields)
+  | ({ type: 'h3'; resolution: number } & GeoBucketFields)
   | { type: 'semantic'; clusters: number }
 
 /**
@@ -48,6 +70,47 @@ export interface AggregateDimension {
   field: string
   bucket?: DimensionBucket
   as?: string
+  /**
+   * When set, names an `AggregateJoin.alias` from `opts.joins`. The
+   * builder reads `field` off the joined table instead of the base
+   * target. Omitted means "base target." Only meaningful when
+   * `BridgeAggregateCapabilities.joins === true`.
+   */
+  from?: string
+}
+
+/**
+ * One join into the aggregate plan. Single-hop only; `belongsTo`
+ * cardinality only (LEFT JOIN, at most one child row per parent). The
+ * dialect qualifies every reference to a joined column with `alias`.
+ *
+ * Limits intentionally kept narrow — multi-hop joins, `hasMany` fan-out,
+ * and composite-key joins all push the surface beyond what every SQL
+ * bridge can express portably; callers that need them stream-reduce.
+ */
+export interface AggregateJoin {
+  /** Child table / collection name as it appears in the engine. */
+  target: string
+  /**
+   * Stable alias the dialect uses when qualifying columns. Bridges MUST
+   * accept it from the caller verbatim; the canonical contract is that
+   * `AggregateDimension.from === alias` selects this join's target.
+   * Aliases are validated as plain identifiers ([A-Za-z_][A-Za-z0-9_]*)
+   * by the builder — values that fail the check are rejected before the
+   * SQL is shipped to the driver.
+   */
+  alias: string
+  /**
+   * Currently `'left'` only. INNER would silently drop parents with no
+   * matching child, which most callers don't want; enumerate so that
+   * future relaxations stay opt-in.
+   */
+  kind: 'left'
+  /**
+   * `{ local: parentColumn, foreign: childColumn }` — exactly one pair.
+   * Composite keys are intentionally deferred.
+   */
+  on: { local: string; foreign: string }
 }
 
 /**
@@ -92,6 +155,19 @@ export interface AggregateOptions {
    * `first` / `last` ordering when those measures are requested.
    */
   changeTrackingColumn?: string
+  /**
+   * Optional table joins applied before GROUP BY. Bridges that don't
+   * advertise `joins: true` on capabilities receive `undefined` here —
+   * the planner upstream routes those to streaming reduce.
+   *
+   * Single-hop, `belongsTo` cardinality only — see `AggregateJoin`. The
+   * base target is implicitly aliased; a dim with `from = '<alias>'`
+   * reads its `field` off that join's child table. `candidatesWhere`
+   * and `ids` are NOT auto-qualified — callers that want to filter on
+   * a joined column must qualify it themselves (the where-builder
+   * forwards keys to the dialect verbatim).
+   */
+  joins?: AggregateJoin[]
 }
 
 /**
@@ -130,7 +206,26 @@ export interface BridgeAggregateCapabilities {
    */
   timeBucket: boolean | AnalyzeTimeBucket[]
   numericBucket: boolean
+  /**
+   * Coarse geo flag retained for backwards compatibility — the resolved
+   * value is `geohashBucket || h3Bucket`. Callers that care which
+   * encoding the bridge supports should read those finer flags
+   * directly. New bridges should set all three consistently.
+   */
   geoBucket: boolean
+  /**
+   * True when `{ type: 'geohash', precision, ... }` dims push down via
+   * a native engine encoder (e.g. `ST_GeoHash`, `geohashEncode`). When
+   * `false`, the planner upstream falls back to streaming reduce for
+   * any geohash dim.
+   */
+  geohashBucket: boolean
+  /**
+   * True when `{ type: 'h3', resolution, ... }` dims push down via a
+   * native engine encoder (only ClickHouse out of the box at time of
+   * writing — `geoToH3`).
+   */
+  h3Bucket: boolean
   count: boolean
   countDistinct: 'exact' | 'approximate' | 'both' | false
   sum: boolean
@@ -144,6 +239,15 @@ export interface BridgeAggregateCapabilities {
   sampling: boolean
   /** True if `accuracy: 'fast'` measures emit serialized `sketches`. */
   emitsSketches: boolean
+  /**
+   * True when the bridge can emit a JOIN clause inside `aggregate()`,
+   * answering `AggregateOptions.joins` and `AggregateDimension.from`
+   * without falling back. SQL bridges generally `true`; KV / document
+   * bridges and any bridge whose engine has no JOIN concept stay
+   * `false`. When `false`, callers passing `opts.joins` should expect
+   * the planner upstream to route to streaming reduce instead.
+   */
+  joins: boolean
 }
 
 export const DEFAULT_AGGREGATE_CAPABILITIES: BridgeAggregateCapabilities = {
@@ -152,6 +256,8 @@ export const DEFAULT_AGGREGATE_CAPABILITIES: BridgeAggregateCapabilities = {
   timeBucket: false,
   numericBucket: false,
   geoBucket: false,
+  geohashBucket: false,
+  h3Bucket: false,
   count: false,
   countDistinct: false,
   sum: false,
@@ -163,6 +269,7 @@ export const DEFAULT_AGGREGATE_CAPABILITIES: BridgeAggregateCapabilities = {
   pushdownOrderLimit: false,
   sampling: false,
   emitsSketches: false,
+  joins: false,
 }
 
 /**
@@ -186,6 +293,8 @@ export const STREAMING_AGGREGATE_CAPABILITIES: BridgeAggregateCapabilities = {
   timeBucket: true,
   numericBucket: true,
   geoBucket: false,
+  geohashBucket: false,
+  h3Bucket: false,
   count: true,
   countDistinct: 'exact',
   sum: true,
@@ -197,6 +306,12 @@ export const STREAMING_AGGREGATE_CAPABILITIES: BridgeAggregateCapabilities = {
   pushdownOrderLimit: true,
   sampling: true,
   emitsSketches: false,
+  // Streaming-reduce path on top of `query()` / `read()` cannot fan out
+  // across two targets safely without per-bridge code (no portable JOIN
+  // semantics over plain reads). Bridges that delegate to
+  // `streamingAggregate` keep this `false`; bridges that implement their
+  // own join enrichment (e.g. MockBridge) override the cap to `true`.
+  joins: false,
 }
 
 /**

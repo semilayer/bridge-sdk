@@ -32,6 +32,14 @@ export interface BridgeTestSuiteOptions {
    * may omit this — the aggregate suite is then skipped.
    */
   aggregateFixtureTarget?: string
+  /**
+   * Optional: a separate target seeded with `joinChildFixture()`.
+   * When provided AND the bridge declares
+   * `aggregateCapabilities().joins = true`, the join compliance
+   * cases run on top of the standard aggregate suite. Mapping is
+   * `parents.id === children.pk` — see `joinChildFixture()`.
+   */
+  joinChildFixtureTarget?: string
 }
 
 export function createBridgeTestSuite(opts: BridgeTestSuiteOptions): void {
@@ -164,6 +172,7 @@ export function createBridgeTestSuite(opts: BridgeTestSuiteOptions): void {
           getBridge: () => bridge,
           target: opts.aggregateFixtureTarget,
           capabilities: probeCaps,
+          joinChildFixtureTarget: opts.joinChildFixtureTarget,
         })
       }
     }

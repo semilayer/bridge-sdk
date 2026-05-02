@@ -25,6 +25,8 @@
  * time-bucket date → ISO string, numeric step → 'lower..upper', etc.).
  */
 import type {
+  AggregateDimension,
+  AggregateJoin,
   AggregateOptions,
   AggregateMeasure,
   AggregateRow,
@@ -32,6 +34,18 @@ import type {
   DimensionBucket,
 } from './aggregate.js'
 import { formatTimeBucket } from './streaming-aggregate.js'
+
+/**
+ * Stable alias the builder uses for the base target whenever
+ * `opts.joins` is non-empty. Every dim with `from === undefined`
+ * resolves to this alias; dims with `from === '<x>'` resolve to the
+ * matching `AggregateJoin.alias`. Alias is fixed (not configurable)
+ * because there is exactly one base target per aggregate plan and
+ * giving it a name from the caller would create needless surface.
+ */
+const BASE_TARGET_ALIAS = 't'
+
+const ALIAS_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 export interface SqlAggregateDialect {
   /** Wrap an identifier in this engine's quotes. */
@@ -96,6 +110,52 @@ export interface SqlAggregateDialect {
    * to `SUM(CASE WHEN ... THEN expr ELSE 0 END)`.
    */
   supportsFilter?: boolean
+  /**
+   * Optional override for the JOIN clause emitted per `AggregateJoin`.
+   * Receives the join, the resolved base alias, and the dialect's own
+   * quoting machinery. The default produces standard ANSI
+   * `LEFT JOIN <target> AS <alias> ON <baseAlias>.<local> = <alias>.<foreign>`
+   * which every supported engine accepts. Only override when an engine
+   * needs bespoke syntax (legacy Oracle outer-join, etc.).
+   */
+  joinClause?(join: AggregateJoin, baseAlias: string): string
+  /**
+   * Emit a SQL expression that returns a geohash string for a row's
+   * lat/lng. `latExpr` and `lngExpr` are already-qualified column
+   * references the builder constructs from `latField` / `lngField`
+   * (or from `decodeGeoField` when the caller supplied `geoField`).
+   * Implementations return engine-native SQL like
+   * `ST_GeoHash(ST_Point(<lng>, <lat>, 4326), <precision>)` (PostGIS)
+   * or `geohashEncode(<lng>, <lat>, <precision>)` (ClickHouse).
+   *
+   * Return `null` when the dialect cannot express geohash bucketing —
+   * the builder treats that as a contract violation (the caller asked
+   * for pushdown the bridge's caps said it could deliver) and throws.
+   */
+  geohashExpr?(
+    latExpr: string,
+    lngExpr: string,
+    precision: number,
+  ): string | null
+  /**
+   * Same shape as `geohashExpr`, returning an H3 cell id. Most
+   * dialects return `null`; ClickHouse's `geoToH3(lng, lat, res)` is
+   * the only widely-deployed native implementation today.
+   */
+  h3Expr?(
+    latExpr: string,
+    lngExpr: string,
+    resolution: number,
+  ): string | null
+  /**
+   * Optional decoder for `geoField`-style buckets where the caller
+   * supplies one combined column instead of a lat/lng pair. Returns
+   * `[latExpr, lngExpr]` the dialect can plug into `geohashExpr` /
+   * `h3Expr`. PostGIS: `[ST_Y(g), ST_X(g)]`. Engines without a
+   * canonical geometry type return `null`, which the builder treats
+   * as a contract violation when the caller has supplied `geoField`.
+   */
+  decodeGeoField?(geoColExpr: string): [string, string] | null
 }
 
 export interface BuiltAggregateSql {
@@ -129,13 +189,20 @@ export function buildAggregateSql(
   const params: unknown[] = []
   const ph = (): string => dialect.placeholder(params.length + 1)
 
+  const joins = opts.joins ?? []
+  validateJoins(joins, opts)
+  // Qualify columns only when at least one join is in play. Without
+  // joins we emit unqualified column refs (back-compat with every
+  // existing bridge integration test that pins exact SQL strings).
+  const useAliases = joins.length > 0
+
   // Build dim projections.
   const dimsSchema: BuiltAggregateSql['dimsSchema'] = []
   const dimSelectParts: string[] = []
   const dimGroupParts: string[] = []
   for (const dim of opts.dimensions) {
-    const colExpr = dialect.quoteIdent(dim.field)
-    const expr = dimExpr(colExpr, dim.bucket, dialect)
+    const colExpr = qualifiedCol(dim, dialect, useAliases)
+    const expr = dimExpr(dim, colExpr, dialect, useAliases)
     const outputKey = dim.as ?? dim.field
     const alias = `dim_${sanitizeAlias(outputKey)}`
     dimSelectParts.push(`${expr} AS ${dialect.quoteIdent(alias)}`)
@@ -161,10 +228,10 @@ export function buildAggregateSql(
     if (m.where) {
       const filterSql = whereSql(m.where, dialect, params, ph)
       projected = dialect.supportsFilter
-        ? `${measureExpr(m, dialect, opts.changeTrackingColumn)} FILTER (WHERE ${filterSql})`
-        : caseWhenFilteredMeasure(m, filterSql, dialect, opts.changeTrackingColumn)
+        ? `${measureExpr(m, dialect, opts.changeTrackingColumn, useAliases)} FILTER (WHERE ${filterSql})`
+        : caseWhenFilteredMeasure(m, filterSql, dialect, opts.changeTrackingColumn, useAliases)
     } else {
-      projected = measureExpr(m, dialect, opts.changeTrackingColumn)
+      projected = measureExpr(m, dialect, opts.changeTrackingColumn, useAliases)
     }
     measureSelectParts.push(`${projected} AS ${dialect.quoteIdent(alias)}`)
     measuresSchema.push({ alias, name, agg: m.agg })
@@ -176,21 +243,56 @@ export function buildAggregateSql(
 
   const selectSql = [...dimSelectParts, ...measureSelectParts].join(', ')
 
-  // FROM + sampling.
+  // FROM + sampling. The base target is aliased only when joins are
+  // present (preserves existing SQL output for the non-join case).
   const fromTable = qualifyTarget(opts.target, dialect)
-  let fromSql = `FROM ${fromTable}`
+  const baseFrom = useAliases
+    ? `${fromTable} AS ${dialect.quoteIdent(BASE_TARGET_ALIAS)}`
+    : fromTable
+  let fromSql = `FROM ${baseFrom}`
   if (opts.sample != null && opts.sample < 1 && dialect.sample) {
     const clause = dialect.sample(opts.sample)
-    if (clause) fromSql = `FROM ${fromTable} ${clause}`
+    // Sampling applies to the base target only — joined children stream
+    // in unsampled. The dialect appends after the base table reference
+    // (with alias), which every supported engine accepts.
+    if (clause) fromSql = `FROM ${baseFrom} ${clause}`
+  }
+  if (joins.length > 0) {
+    const joinParts = joins.map((j) => renderJoin(j, dialect))
+    fromSql = `${fromSql} ${joinParts.join(' ')}`
   }
 
   // WHERE — candidatesWhere + ids + drop-null-dim filter.
   const whereParts: string[] = []
   // Drop rows where any dim resolves to NULL — matches the streaming
   // reducer's behavior (nulls excluded from the group). Without this,
-  // SQL bridges emit a bonus bucket per dim with key=NULL.
+  // SQL bridges emit a bonus bucket per dim with key=NULL. With LEFT
+  // JOIN, this also drops parents whose FK didn't match (joined dim
+  // resolves to NULL), matching the streaming behavior.
   for (const dim of opts.dimensions) {
-    whereParts.push(`${dialect.quoteIdent(dim.field)} IS NOT NULL`)
+    // Geo dims have no single `field` to test — drop on the underlying
+    // lat/lng or geoField columns instead. For everything else the
+    // straight-through column reference works.
+    if (
+      dim.bucket &&
+      typeof dim.bucket === 'object' &&
+      (dim.bucket.type === 'geohash' || dim.bucket.type === 'h3')
+    ) {
+      const fromAlias = dim.from ?? (useAliases ? BASE_TARGET_ALIAS : undefined)
+      const qcol = (col: string): string =>
+        fromAlias
+          ? `${dialect.quoteIdent(fromAlias)}.${dialect.quoteIdent(col)}`
+          : dialect.quoteIdent(col)
+      if (dim.bucket.geoField) {
+        whereParts.push(`${qcol(dim.bucket.geoField)} IS NOT NULL`)
+      } else if (dim.bucket.latField && dim.bucket.lngField) {
+        whereParts.push(`${qcol(dim.bucket.latField)} IS NOT NULL`)
+        whereParts.push(`${qcol(dim.bucket.lngField)} IS NOT NULL`)
+      }
+      continue
+    }
+    const colRef = qualifiedCol(dim, dialect, useAliases)
+    whereParts.push(`${colRef} IS NOT NULL`)
     // For numeric breaks, also drop rows that don't fall in any bucket —
     // the dim expression returns NULL for them and they'd group as a
     // single NULL bucket otherwise.
@@ -198,7 +300,7 @@ export function buildAggregateSql(
       const breaks = dim.bucket.breaks
       const lo = breaks[0]
       const hi = breaks[breaks.length - 1]
-      const numField = dialect.toNumeric(dialect.quoteIdent(dim.field))
+      const numField = dialect.toNumeric(colRef)
       whereParts.push(`${numField} >= ${lo} AND ${numField} < ${hi}`)
     }
   }
@@ -206,16 +308,19 @@ export function buildAggregateSql(
     whereParts.push(whereSql(opts.candidatesWhere, dialect, params, ph))
   }
   if (opts.ids && opts.ids.length > 0) {
-    // Same heuristic as streamingAggregate — assume PK column "id". Bridges
-    // that key on a different column should pre-translate via
-    // `candidatesWhere` before calling buildAggregateSql.
+    // Same heuristic as streamingAggregate — assume PK column "id" on
+    // the base target. Bridges that key on a different column should
+    // pre-translate via `candidatesWhere` before calling buildAggregateSql.
     const ids = opts.ids
     const placeholders: string[] = []
     for (const v of ids) {
       placeholders.push(ph())
       params.push(v)
     }
-    whereParts.push(`${dialect.quoteIdent('id')} IN (${placeholders.join(', ')})`)
+    const idCol = useAliases
+      ? `${dialect.quoteIdent(BASE_TARGET_ALIAS)}.${dialect.quoteIdent('id')}`
+      : dialect.quoteIdent('id')
+    whereParts.push(`${idCol} IN (${placeholders.join(', ')})`)
   }
   const whereSqlClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : ''
 
@@ -302,10 +407,12 @@ export function decodeAggregateRow(
 // ---------------------------------------------------------------------------
 
 function dimExpr(
+  dim: AggregateDimension,
   colExpr: string,
-  bucket: DimensionBucket | undefined,
   dialect: SqlAggregateDialect,
+  useAliases: boolean,
 ): string {
+  const { bucket } = dim
   if (bucket === undefined) return colExpr
   if (typeof bucket === 'string') return dialect.timeTrunc(bucket, colExpr)
   if (bucket.type === 'numeric') {
@@ -327,39 +434,119 @@ function dimExpr(
       return `(CASE ${conds} ELSE NULL END)`
     }
   }
-  // Geo / semantic — emit the raw column; bridges that need real encoding
-  // override numericStep/numericBreaks and add a custom branch.
+  if (bucket.type === 'geohash' || bucket.type === 'h3') {
+    return geoDimExpr(dim, bucket, dialect, useAliases)
+  }
+  // Semantic — emit the raw column; future work hooks an encoder here.
   return colExpr
+}
+
+/**
+ * Resolve a geo dim's GROUP BY expression. Reads `latField`+`lngField`
+ * or a single `geoField`; calls the dialect's `geohashExpr` / `h3Expr`
+ * with already-qualified column references. Throws on contract
+ * violations (missing fields, dialect not implementing the bucket type
+ * the caller asked for, `geoField` supplied without a decoder).
+ */
+function geoDimExpr(
+  dim: AggregateDimension,
+  bucket: Extract<DimensionBucket, { type: 'geohash' } | { type: 'h3' }>,
+  dialect: SqlAggregateDialect,
+  useAliases: boolean,
+): string {
+  const fromAlias = dim.from ?? (useAliases ? BASE_TARGET_ALIAS : undefined)
+  const qcol = (col: string): string =>
+    fromAlias
+      ? `${dialect.quoteIdent(fromAlias)}.${dialect.quoteIdent(col)}`
+      : dialect.quoteIdent(col)
+
+  let latExpr: string
+  let lngExpr: string
+  if (bucket.geoField) {
+    if (!dialect.decodeGeoField) {
+      throw new Error(
+        `Dialect cannot decode "geoField" for geo bucket on dim "${dim.field}" — supply latField/lngField or use a dialect that implements decodeGeoField`,
+      )
+    }
+    const decoded = dialect.decodeGeoField(qcol(bucket.geoField))
+    if (!decoded) {
+      throw new Error(
+        `Dialect refused to decode "geoField" for geo bucket on dim "${dim.field}"`,
+      )
+    }
+    ;[latExpr, lngExpr] = decoded
+  } else if (bucket.latField && bucket.lngField) {
+    latExpr = qcol(bucket.latField)
+    lngExpr = qcol(bucket.lngField)
+  } else {
+    throw new Error(
+      `Geo bucket on dim "${dim.field}" requires either latField+lngField or geoField`,
+    )
+  }
+
+  if (bucket.type === 'geohash') {
+    if (!dialect.geohashExpr) {
+      throw new Error(
+        `Dialect does not implement geohashExpr — caps advertise geohashBucket but pushdown is not wired`,
+      )
+    }
+    const sql = dialect.geohashExpr(latExpr, lngExpr, bucket.precision)
+    if (sql === null) {
+      throw new Error(
+        `Dialect returned null geohashExpr for dim "${dim.field}" — bucket cannot be pushed down`,
+      )
+    }
+    return sql
+  }
+  if (!dialect.h3Expr) {
+    throw new Error(
+      `Dialect does not implement h3Expr — caps advertise h3Bucket but pushdown is not wired`,
+    )
+  }
+  const sql = dialect.h3Expr(latExpr, lngExpr, bucket.resolution)
+  if (sql === null) {
+    throw new Error(
+      `Dialect returned null h3Expr for dim "${dim.field}" — bucket cannot be pushed down`,
+    )
+  }
+  return sql
 }
 
 function measureExpr(
   m: AggregateMeasure,
   dialect: SqlAggregateDialect,
   changeTrackingColumn: string | undefined,
+  useAliases: boolean,
 ): string {
+  // Measures always reference the base target — joined columns are
+  // dim-only.
+  const qcol = (name: string): string =>
+    useAliases
+      ? `${dialect.quoteIdent(BASE_TARGET_ALIAS)}.${dialect.quoteIdent(name)}`
+      : dialect.quoteIdent(name)
   switch (m.agg) {
     case 'count':
       return 'COUNT(*)'
     case 'sum':
     case 'rate':
-      return `SUM(${dialect.quoteIdent(m.column!)})`
+      return `SUM(${qcol(m.column!)})`
     case 'avg':
-      return `AVG(${dialect.quoteIdent(m.column!)})`
+      return `AVG(${qcol(m.column!)})`
     case 'min':
-      return `MIN(${dialect.quoteIdent(m.column!)})`
+      return `MIN(${qcol(m.column!)})`
     case 'max':
-      return `MAX(${dialect.quoteIdent(m.column!)})`
+      return `MAX(${qcol(m.column!)})`
     case 'count_distinct': {
-      const col = m.column ? dialect.quoteIdent(m.column) : '*'
+      const col = m.column ? qcol(m.column) : '*'
       if (dialect.countDistinct) return dialect.countDistinct(col, m.accuracy)
       return `COUNT(DISTINCT ${col})`
     }
     case 'percentile':
-      return dialect.percentile(dialect.quoteIdent(m.column!), m.p!)
+      return dialect.percentile(qcol(m.column!), m.p!)
     case 'first':
     case 'last': {
-      const col = dialect.quoteIdent(m.column!)
-      const ts = dialect.quoteIdent(changeTrackingColumn ?? m.column!)
+      const col = qcol(m.column!)
+      const ts = qcol(changeTrackingColumn ?? m.column!)
       if (dialect.firstLast) return dialect.firstLast(m.agg, col, ts)
       // Portable default — works on PG / Cockroach / Snowflake / BigQuery.
       const dir = m.agg === 'first' ? 'ASC' : 'DESC'
@@ -393,34 +580,39 @@ function caseWhenFilteredMeasure(
   filterSql: string,
   dialect: SqlAggregateDialect,
   changeTrackingColumn: string | undefined,
+  useAliases: boolean,
 ): string {
+  const qcol = (name: string): string =>
+    useAliases
+      ? `${dialect.quoteIdent(BASE_TARGET_ALIAS)}.${dialect.quoteIdent(name)}`
+      : dialect.quoteIdent(name)
   switch (m.agg) {
     case 'count':
       return `COUNT(CASE WHEN ${filterSql} THEN 1 END)`
     case 'sum':
     case 'rate':
-      return `SUM(CASE WHEN ${filterSql} THEN ${dialect.quoteIdent(m.column!)} ELSE 0 END)`
+      return `SUM(CASE WHEN ${filterSql} THEN ${qcol(m.column!)} ELSE 0 END)`
     case 'avg':
-      return `AVG(CASE WHEN ${filterSql} THEN ${dialect.quoteIdent(m.column!)} END)`
+      return `AVG(CASE WHEN ${filterSql} THEN ${qcol(m.column!)} END)`
     case 'min':
-      return `MIN(CASE WHEN ${filterSql} THEN ${dialect.quoteIdent(m.column!)} END)`
+      return `MIN(CASE WHEN ${filterSql} THEN ${qcol(m.column!)} END)`
     case 'max':
-      return `MAX(CASE WHEN ${filterSql} THEN ${dialect.quoteIdent(m.column!)} END)`
+      return `MAX(CASE WHEN ${filterSql} THEN ${qcol(m.column!)} END)`
     case 'count_distinct': {
-      const col = m.column ? dialect.quoteIdent(m.column) : '*'
+      const col = m.column ? qcol(m.column) : '*'
       const wrapped = `CASE WHEN ${filterSql} THEN ${col} END`
       if (dialect.countDistinct) return dialect.countDistinct(wrapped, m.accuracy)
       return `COUNT(DISTINCT ${wrapped})`
     }
     case 'percentile':
       return dialect.percentile(
-        `CASE WHEN ${filterSql} THEN ${dialect.quoteIdent(m.column!)} END`,
+        `CASE WHEN ${filterSql} THEN ${qcol(m.column!)} END`,
         m.p!,
       )
     case 'first':
     case 'last': {
-      const col = `CASE WHEN ${filterSql} THEN ${dialect.quoteIdent(m.column!)} END`
-      const ts = dialect.quoteIdent(changeTrackingColumn ?? m.column!)
+      const col = `CASE WHEN ${filterSql} THEN ${qcol(m.column!)} END`
+      const ts = qcol(changeTrackingColumn ?? m.column!)
       if (dialect.firstLast) return dialect.firstLast(m.agg, col, ts)
       const dir = m.agg === 'first' ? 'ASC' : 'DESC'
       return `(ARRAY_AGG(${col} ORDER BY ${ts} ${dir}))[1]`
@@ -439,11 +631,14 @@ function buildTopKQuery(
   const params: unknown[] = []
   const ph = (): string => dialect.placeholder(params.length + 1)
 
+  const joins = opts.joins ?? []
+  const useAliases = joins.length > 0
+
   const dimSelectParts: string[] = []
   const dimGroupParts: string[] = []
   for (const dim of opts.dimensions) {
-    const colExpr = dialect.quoteIdent(dim.field)
-    const expr = dimExpr(colExpr, dim.bucket, dialect)
+    const colExpr = qualifiedCol(dim, dialect, useAliases)
+    const expr = dimExpr(dim, colExpr, dialect, useAliases)
     const alias = `dim_${sanitizeAlias(dim.as ?? dim.field)}`
     dimSelectParts.push(`${expr} AS ${dialect.quoteIdent(alias)}`)
     dimGroupParts.push(expr)
@@ -451,9 +646,25 @@ function buildTopKQuery(
 
   const valueAlias = dialect.quoteIdent('k_value')
   const countAlias = dialect.quoteIdent('k_count')
-  const valueCol = dialect.quoteIdent(m.column!)
+  // top_k measure values come off the base target (consistent with
+  // measureExpr below — joined columns are dim-only).
+  const valueCol = useAliases
+    ? `${dialect.quoteIdent(BASE_TARGET_ALIAS)}.${dialect.quoteIdent(m.column!)}`
+    : dialect.quoteIdent(m.column!)
 
   const fromTable = qualifyTarget(opts.target, dialect)
+  const baseFrom = useAliases
+    ? `${fromTable} AS ${dialect.quoteIdent(BASE_TARGET_ALIAS)}`
+    : fromTable
+  // Copy the JOIN clauses verbatim into the top-K subquery — without
+  // them the subquery would group rows that don't satisfy the same
+  // join filter as the main result, producing top-K entries that do
+  // not appear in the main row's bucket.
+  const fromSql =
+    joins.length > 0
+      ? `FROM ${baseFrom} ${joins.map((j) => renderJoin(j, dialect)).join(' ')}`
+      : `FROM ${baseFrom}`
+
   const whereParts: string[] = []
   if (opts.candidatesWhere) {
     whereParts.push(whereSql(opts.candidatesWhere, dialect, params, ph))
@@ -472,7 +683,7 @@ function buildTopKQuery(
 
   const sql = [
     `SELECT ${[...dimSelectParts, `${valueCol} AS ${valueAlias}`, `COUNT(*) AS ${countAlias}`].join(', ')}`,
-    `FROM ${fromTable}`,
+    fromSql,
     whereClause,
     `GROUP BY ${groupBy}`,
     `ORDER BY ${orderByParts.join(', ')}`,
@@ -481,6 +692,74 @@ function buildTopKQuery(
     .join(' ')
 
   return { measureName: name, sql, params, column: m.column!, k: m.k! }
+}
+
+/**
+ * Reject join definitions that would produce malformed SQL or violate
+ * the join contract (single-hop, single-column-pair, identifier-shaped
+ * alias). Runs at plan time so callers see the contract violation
+ * before any SQL ships to a driver.
+ */
+function validateJoins(joins: AggregateJoin[], opts: AggregateOptions): void {
+  const seen = new Set<string>()
+  for (const j of joins) {
+    if (j.kind !== 'left') {
+      throw new Error(`Unsupported join kind "${String(j.kind)}" — only 'left' is allowed`)
+    }
+    if (!j.alias || !ALIAS_RE.test(j.alias)) {
+      throw new Error(`Invalid join alias "${String(j.alias)}" — must match ${ALIAS_RE}`)
+    }
+    if (j.alias === BASE_TARGET_ALIAS) {
+      throw new Error(`Join alias "${j.alias}" collides with the reserved base alias`)
+    }
+    if (seen.has(j.alias)) {
+      throw new Error(`Duplicate join alias "${j.alias}" — aliases must be unique within an aggregate`)
+    }
+    seen.add(j.alias)
+    if (!j.on || typeof j.on !== 'object') {
+      throw new Error(`Join "${j.alias}" missing "on"`)
+    }
+    if (!j.on.local || !j.on.foreign) {
+      throw new Error(`Join "${j.alias}" requires both on.local and on.foreign`)
+    }
+  }
+  // Every dim with `from` must reference one of the declared aliases.
+  for (const dim of opts.dimensions) {
+    if (dim.from !== undefined && !seen.has(dim.from)) {
+      throw new Error(`Dimension "${dim.field}" references unknown join alias "${dim.from}"`)
+    }
+  }
+}
+
+/**
+ * Resolve a dim's column reference. With joins active, all references
+ * are qualified with the dim's `from` alias (or the base alias when
+ * `from` is omitted). Without joins, the existing unqualified shape is
+ * preserved so non-join callers see no SQL change.
+ */
+function qualifiedCol(
+  dim: AggregateDimension,
+  dialect: SqlAggregateDialect,
+  useAliases: boolean,
+): string {
+  if (!useAliases) return dialect.quoteIdent(dim.field)
+  const alias = dim.from ?? BASE_TARGET_ALIAS
+  return `${dialect.quoteIdent(alias)}.${dialect.quoteIdent(dim.field)}`
+}
+
+/**
+ * Emit a single JOIN clause. Defers to `dialect.joinClause` if present,
+ * else falls back to standard ANSI `LEFT JOIN <target> AS <alias> ON …`
+ * which every supported engine accepts.
+ */
+function renderJoin(j: AggregateJoin, dialect: SqlAggregateDialect): string {
+  if (dialect.joinClause) return dialect.joinClause(j, BASE_TARGET_ALIAS)
+  const target = qualifyTarget(j.target, dialect)
+  const alias = dialect.quoteIdent(j.alias)
+  const baseAlias = dialect.quoteIdent(BASE_TARGET_ALIAS)
+  const local = dialect.quoteIdent(j.on.local)
+  const foreign = dialect.quoteIdent(j.on.foreign)
+  return `LEFT JOIN ${target} AS ${alias} ON ${baseAlias}.${local} = ${alias}.${foreign}`
 }
 
 function whereSql(

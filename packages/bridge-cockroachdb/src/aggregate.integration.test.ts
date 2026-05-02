@@ -8,10 +8,15 @@ import pg from 'pg'
 import { describe, beforeAll, afterAll } from 'vitest'
 import { CockroachdbBridge } from './bridge.js'
 import { COCKROACH_CAPABILITIES } from '@semilayer/bridge-sdk'
-import { aggregateFixture, runAggregateCompliance } from '@semilayer/bridge-sdk/testing'
+import {
+  aggregateFixture,
+  joinChildFixture,
+  runAggregateCompliance,
+} from '@semilayer/bridge-sdk/testing'
 
 const DATABASE_URL = process.env['DATABASE_URL']
 const TABLE = 'sl_agg_fixture'
+const JOIN_CHILD_TABLE = 'sl_agg_join_child'
 
 describe.skipIf(!DATABASE_URL)('CockroachdbBridge aggregate integration', () => {
   let setup: pg.Client
@@ -41,6 +46,21 @@ describe.skipIf(!DATABASE_URL)('CockroachdbBridge aggregate integration', () => 
       )
     }
 
+    await setup.query(`DROP TABLE IF EXISTS ${JOIN_CHILD_TABLE}`)
+    await setup.query(`
+      CREATE TABLE ${JOIN_CHILD_TABLE} (
+        pk     INT PRIMARY KEY,
+        region STRING NOT NULL,
+        tier   STRING NOT NULL
+      )
+    `)
+    for (const r of joinChildFixture()) {
+      await setup.query(
+        `INSERT INTO ${JOIN_CHILD_TABLE} (pk, region, tier) VALUES ($1, $2, $3)`,
+        [r.pk, r.region, r.tier],
+      )
+    }
+
     bridge = new CockroachdbBridge({ url: DATABASE_URL! })
     await bridge.connect()
   })
@@ -48,6 +68,7 @@ describe.skipIf(!DATABASE_URL)('CockroachdbBridge aggregate integration', () => 
   afterAll(async () => {
     await bridge?.disconnect()
     await setup?.query(`DROP TABLE IF EXISTS ${TABLE}`)
+    await setup?.query(`DROP TABLE IF EXISTS ${JOIN_CHILD_TABLE}`)
     await setup?.end()
   })
 
@@ -55,5 +76,6 @@ describe.skipIf(!DATABASE_URL)('CockroachdbBridge aggregate integration', () => 
     getBridge: () => bridge,
     target: TABLE,
     capabilities: COCKROACH_CAPABILITIES,
+    joinChildFixtureTarget: JOIN_CHILD_TABLE,
   })
 })

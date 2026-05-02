@@ -20,6 +20,8 @@ export const POSTGRES_FAMILY_CAPABILITIES: BridgeAggregateCapabilities = {
   timeBucket: true,
   numericBucket: true,
   geoBucket: false,
+  geohashBucket: false,
+  h3Bucket: false,
   count: true,
   countDistinct: 'exact',
   sum: true,
@@ -31,6 +33,7 @@ export const POSTGRES_FAMILY_CAPABILITIES: BridgeAggregateCapabilities = {
   pushdownOrderLimit: true,
   sampling: true,
   emitsSketches: false,
+  joins: true,
 }
 
 /**
@@ -64,6 +67,8 @@ export const MYSQL_FAMILY_CAPABILITIES: BridgeAggregateCapabilities = {
   timeBucket: true,
   numericBucket: true,
   geoBucket: false,
+  geohashBucket: false,
+  h3Bucket: false,
   count: true,
   countDistinct: 'exact',
   sum: true,
@@ -75,6 +80,7 @@ export const MYSQL_FAMILY_CAPABILITIES: BridgeAggregateCapabilities = {
   pushdownOrderLimit: true,
   sampling: false,
   emitsSketches: false,
+  joins: true,
 }
 
 export const SQLITE_FAMILY_CAPABILITIES: BridgeAggregateCapabilities = {
@@ -83,6 +89,8 @@ export const SQLITE_FAMILY_CAPABILITIES: BridgeAggregateCapabilities = {
   timeBucket: true,
   numericBucket: true,
   geoBucket: false,
+  geohashBucket: false,
+  h3Bucket: false,
   count: true,
   countDistinct: 'exact',
   sum: true,
@@ -94,6 +102,7 @@ export const SQLITE_FAMILY_CAPABILITIES: BridgeAggregateCapabilities = {
   pushdownOrderLimit: true,
   sampling: false,
   emitsSketches: false,
+  joins: true,
 }
 
 export const MSSQL_CAPABILITIES: BridgeAggregateCapabilities = {
@@ -102,6 +111,8 @@ export const MSSQL_CAPABILITIES: BridgeAggregateCapabilities = {
   timeBucket: true,
   numericBucket: true,
   geoBucket: false,
+  geohashBucket: false,
+  h3Bucket: false,
   count: true,
   countDistinct: 'exact',
   sum: true,
@@ -123,6 +134,7 @@ export const MSSQL_CAPABILITIES: BridgeAggregateCapabilities = {
   // unsupported until we can fall back to a row-level random filter.
   sampling: false,
   emitsSketches: false,
+  joins: true,
 }
 
 export const CLICKHOUSE_CAPABILITIES: BridgeAggregateCapabilities = {
@@ -131,6 +143,8 @@ export const CLICKHOUSE_CAPABILITIES: BridgeAggregateCapabilities = {
   timeBucket: true,
   numericBucket: true,
   geoBucket: false,
+  geohashBucket: false,
+  h3Bucket: false,
   count: true,
   countDistinct: 'both', // exact + uniqHLL12 / uniqCombined
   sum: true,
@@ -142,6 +156,7 @@ export const CLICKHOUSE_CAPABILITIES: BridgeAggregateCapabilities = {
   pushdownOrderLimit: true,
   sampling: true,
   emitsSketches: false,
+  joins: true,
 }
 
 export const BIGQUERY_CAPABILITIES: BridgeAggregateCapabilities = {
@@ -150,6 +165,8 @@ export const BIGQUERY_CAPABILITIES: BridgeAggregateCapabilities = {
   timeBucket: true,
   numericBucket: true,
   geoBucket: false,
+  geohashBucket: false,
+  h3Bucket: false,
   count: true,
   countDistinct: 'both', // APPROX_COUNT_DISTINCT for fast
   sum: true,
@@ -161,6 +178,7 @@ export const BIGQUERY_CAPABILITIES: BridgeAggregateCapabilities = {
   pushdownOrderLimit: true,
   sampling: true,
   emitsSketches: false,
+  joins: true,
 }
 
 export const SNOWFLAKE_CAPABILITIES: BridgeAggregateCapabilities = {
@@ -169,6 +187,8 @@ export const SNOWFLAKE_CAPABILITIES: BridgeAggregateCapabilities = {
   timeBucket: true,
   numericBucket: true,
   geoBucket: false,
+  geohashBucket: false,
+  h3Bucket: false,
   count: true,
   countDistinct: 'both', // APPROX_COUNT_DISTINCT
   sum: true,
@@ -180,6 +200,7 @@ export const SNOWFLAKE_CAPABILITIES: BridgeAggregateCapabilities = {
   pushdownOrderLimit: true,
   sampling: true,
   emitsSketches: false,
+  joins: true,
 }
 
 export const ORACLE_CAPABILITIES: BridgeAggregateCapabilities = {
@@ -188,6 +209,8 @@ export const ORACLE_CAPABILITIES: BridgeAggregateCapabilities = {
   timeBucket: true,
   numericBucket: true,
   geoBucket: false,
+  geohashBucket: false,
+  h3Bucket: false,
   count: true,
   countDistinct: 'exact',
   sum: true,
@@ -199,6 +222,7 @@ export const ORACLE_CAPABILITIES: BridgeAggregateCapabilities = {
   pushdownOrderLimit: true,
   sampling: true,
   emitsSketches: false,
+  joins: true,
 }
 
 export const DUCKDB_CAPABILITIES: BridgeAggregateCapabilities = {
@@ -207,6 +231,8 @@ export const DUCKDB_CAPABILITIES: BridgeAggregateCapabilities = {
   timeBucket: true,
   numericBucket: true,
   geoBucket: false,
+  geohashBucket: false,
+  h3Bucket: false,
   count: true,
   countDistinct: 'both',
   sum: true,
@@ -218,6 +244,7 @@ export const DUCKDB_CAPABILITIES: BridgeAggregateCapabilities = {
   pushdownOrderLimit: true,
   sampling: true,
   emitsSketches: false,
+  joins: true,
 }
 
 // ─── Dialects ────────────────────────────────────────────────────────
@@ -473,4 +500,105 @@ export const DUCKDB_DIALECT: SqlAggregateDialect = {
   sample: (r) => (r > 0 && r < 1 ? `USING SAMPLE ${Math.max(0, Math.min(100, r * 100))}%` : null),
   firstLast: (kind, col, ts) => (kind === 'first' ? `arg_min(${col}, ${ts})` : `arg_max(${col}, ${ts})`),
   supportsFilter: true,
+}
+
+// ─── Geo SQL helpers ─────────────────────────────────────────────────
+//
+// Engine-native expressions for geohash / h3 / geoField decoding.
+// Bridges OPT IN by composing these into their dialect — the
+// pre-baked dialect objects above are intentionally agnostic so that
+// existing aggregate SQL output is unchanged for non-geo callers, and
+// so that bridges can gate native pushdown on a constructor option
+// (e.g. PostGIS extension installed, ClickHouse table backend, …).
+//
+// All helpers are pure stateless functions — `(latExpr, lngExpr,
+// precision|resolution) => sql`. The `latExpr` / `lngExpr` arguments
+// arrive already-qualified from the builder (`"t"."lat"`,
+// `"c"."lng"`, etc.), so helpers must NOT re-quote them.
+
+/**
+ * PostGIS geohash. Requires the PostGIS extension on the connected
+ * database; bridges should gate this behind a constructor flag.
+ * `ST_Point(lng, lat, 4326)` returns a geometry in WGS84 lon/lat
+ * order, which `ST_GeoHash` then encodes.
+ */
+export function postgisGeohashExpr(latExpr: string, lngExpr: string, precision: number): string {
+  return `ST_GeoHash(ST_SetSRID(ST_MakePoint(${lngExpr}, ${latExpr}), 4326), ${Math.max(1, Math.min(12, Math.floor(precision)))})`
+}
+
+/**
+ * PostGIS geoField decoder. Accepts a geometry-or-geography column;
+ * returns `[ST_Y, ST_X]` so the lat/lng pair can flow into
+ * `geohashExpr`. Casts via `::geometry` so geography columns work
+ * too — geography → geometry is implicit in PostGIS, but the cast
+ * keeps the SQL portable across versions.
+ */
+export function postgisDecodeGeoField(geoColExpr: string): [string, string] {
+  return [`ST_Y((${geoColExpr})::geometry)`, `ST_X((${geoColExpr})::geometry)`]
+}
+
+/**
+ * MySQL 8 / MariaDB 11 geohash. Uses `ST_GeoHash(POINT(lng, lat),
+ * precision)` — both engines accept this form natively.
+ */
+export function mysqlGeohashExpr(latExpr: string, lngExpr: string, precision: number): string {
+  return `ST_GeoHash(POINT(${lngExpr}, ${latExpr}), ${Math.max(1, Math.min(12, Math.floor(precision)))})`
+}
+
+/**
+ * MySQL/MariaDB geoField decoder. POINT columns expose
+ * `ST_X` / `ST_Y` accessors. MySQL POINT is lng/lat (X = longitude),
+ * matching the PostGIS shape — return `[ST_Y, ST_X]`.
+ */
+export function mysqlDecodeGeoField(geoColExpr: string): [string, string] {
+  return [`ST_Y(${geoColExpr})`, `ST_X(${geoColExpr})`]
+}
+
+/**
+ * ClickHouse geohash. `geohashEncode(lng, lat, precision)` is native
+ * — no extension needed.
+ */
+export function clickhouseGeohashExpr(latExpr: string, lngExpr: string, precision: number): string {
+  return `geohashEncode(${lngExpr}, ${latExpr}, ${Math.max(1, Math.min(12, Math.floor(precision)))})`
+}
+
+/**
+ * ClickHouse H3 cell id. `geoToH3(lng, lat, resolution)` is native;
+ * ClickHouse is the only widely-deployed engine with first-class H3.
+ */
+export function clickhouseH3Expr(latExpr: string, lngExpr: string, resolution: number): string {
+  return `geoToH3(${lngExpr}, ${latExpr}, ${Math.max(0, Math.min(15, Math.floor(resolution)))})`
+}
+
+/**
+ * BigQuery geohash via `ST_GEOHASH(ST_GEOGPOINT(lng, lat), precision)`.
+ * `ST_GEOGPOINT` is BigQuery's WGS84 point constructor — matches the
+ * standard expectation of `ST_GeoHash` returning a 1-12 char string.
+ */
+export function bigqueryGeohashExpr(latExpr: string, lngExpr: string, precision: number): string {
+  return `ST_GEOHASH(ST_GEOGPOINT(${lngExpr}, ${latExpr}), ${Math.max(1, Math.min(12, Math.floor(precision)))})`
+}
+
+/**
+ * BigQuery geoField decoder. GEOGRAPHY columns expose `ST_X` /
+ * `ST_Y`; same lng/lat shape as PostGIS.
+ */
+export function bigqueryDecodeGeoField(geoColExpr: string): [string, string] {
+  return [`ST_Y(${geoColExpr})`, `ST_X(${geoColExpr})`]
+}
+
+/**
+ * Snowflake geohash. `ST_GEOHASH(ST_MAKEPOINT(lng, lat), precision)`.
+ * Returns a base32 string identical in shape to the other engines'.
+ */
+export function snowflakeGeohashExpr(latExpr: string, lngExpr: string, precision: number): string {
+  return `ST_GEOHASH(ST_MAKEPOINT(${lngExpr}, ${latExpr}), ${Math.max(1, Math.min(12, Math.floor(precision)))})`
+}
+
+/**
+ * Snowflake geoField decoder. GEOGRAPHY / GEOMETRY columns expose
+ * `ST_X` / `ST_Y`.
+ */
+export function snowflakeDecodeGeoField(geoColExpr: string): [string, string] {
+  return [`ST_Y(${geoColExpr})`, `ST_X(${geoColExpr})`]
 }

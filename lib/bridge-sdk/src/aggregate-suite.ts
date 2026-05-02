@@ -45,6 +45,21 @@ export interface AggregateSuiteOptions {
    */
   capabilities: BridgeAggregateCapabilities
   expectedRowCount?: number
+  /**
+   * Fully-qualified table name of the seeded `joinChildFixture` rows.
+   * When provided AND `caps.joins === true`, the join compliance block
+   * runs against `target` (parent) LEFT JOIN this (child). Bridges
+   * that haven't seeded a join child can omit this — the join cases
+   * are skipped cleanly.
+   */
+  joinChildFixtureTarget?: string
+  /**
+   * Fully-qualified table name of the seeded `geoFixture` rows. When
+   * provided AND `caps.geohashBucket === true` (or `h3Bucket`), the
+   * geo compliance cases run against this target. Bridges without
+   * native geo encoders omit it — the suite skips cleanly.
+   */
+  geoFixtureTarget?: string
 }
 
 const FIXTURE_TARGET_PLACEHOLDER = '__aggregate_fixture__'
@@ -105,12 +120,105 @@ export async function collect(stream: AsyncIterable<AggregateRow>): Promise<Aggr
 export { collect as collectAggregateStream }
 
 /**
+ * Companion fixture for the join compliance block. Each row's `pk`
+ * mirrors the parent's `id` from `aggregateFixture()`, skipping `pk=15`
+ * and `pk=20` so two parents have no matching child — the LEFT JOIN
+ * cardinality test exercises the drop-null filter on a joined
+ * dimension. `region` and `tier` rotate deterministically over their
+ * respective vocabularies.
+ *
+ * Mapping for the test: `parents.id === children.pk`.
+ *
+ * Resulting region distribution across the 48 child rows:
+ *   EMEA = 17, AMER = 16, APAC = 15.
+ */
+export interface JoinChildFixtureRow {
+  pk: number
+  region: 'EMEA' | 'AMER' | 'APAC'
+  tier: 'gold' | 'silver' | 'bronze'
+}
+
+const JOIN_CHILD_SKIP_PKS: ReadonlySet<number> = new Set([15, 20])
+
+export function joinChildFixture(): JoinChildFixtureRow[] {
+  const regions: Array<JoinChildFixtureRow['region']> = ['EMEA', 'AMER', 'APAC']
+  const tiers: Array<JoinChildFixtureRow['tier']> = ['gold', 'silver', 'bronze']
+  const rows: JoinChildFixtureRow[] = []
+  for (let pk = 1; pk <= 50; pk++) {
+    if (JOIN_CHILD_SKIP_PKS.has(pk)) continue
+    rows.push({
+      pk,
+      region: regions[(pk - 1) % 3]!,
+      tier: tiers[(pk - 1) % 3]!,
+    })
+  }
+  return rows
+}
+
+/**
+ * Convenience: convert `joinChildFixture()` rows to the generic
+ * `BridgeRow` shape bridges typically seed.
+ */
+export function joinChildFixtureToBridgeRows(
+  rows: JoinChildFixtureRow[],
+): BridgeRow[] {
+  return rows.map((r) => ({ ...r }))
+}
+
+/**
+ * Geo fixture for the geohash / h3 compliance block. Real lat/lng
+ * for four city centers, with 5–7 perturbed rows clustered around
+ * each. Precision-5 geohash buckets group cities together; precision-7
+ * splits some clusters into multiple cells.
+ *
+ * Cities are deliberately ≥ ~10 km apart so they always land in
+ * different precision-5 cells regardless of jitter direction.
+ */
+export interface GeoFixtureRow {
+  id: number
+  lat: number
+  lng: number
+  city: 'Boston' | 'Cambridge' | 'Tokyo' | 'London'
+}
+
+const GEO_CITIES: ReadonlyArray<{ name: GeoFixtureRow['city']; lat: number; lng: number }> = [
+  { name: 'Boston', lat: 42.3601, lng: -71.0589 },
+  { name: 'Cambridge', lat: 42.3736, lng: -71.1097 }, // ~5 km from Boston — same p5 cell sometimes, splits at p7.
+  { name: 'Tokyo', lat: 35.6762, lng: 139.6503 },
+  { name: 'London', lat: 51.5074, lng: -0.1278 },
+]
+
+export function geoFixture(): GeoFixtureRow[] {
+  const rows: GeoFixtureRow[] = []
+  let id = 1
+  for (const city of GEO_CITIES) {
+    // 6 rows per city, clustered ±0.005° (~ ±550 m) around the center.
+    for (let i = 0; i < 6; i++) {
+      const dLat = ((i - 3) * 0.0015) // -0.0045 .. +0.0045
+      const dLng = ((i - 2) * 0.0012) // -0.0024 .. +0.0048
+      rows.push({
+        id: id++,
+        lat: city.lat + dLat,
+        lng: city.lng + dLng,
+        city: city.name,
+      })
+    }
+  }
+  return rows
+}
+
+/** Convenience converter. */
+export function geoFixtureToBridgeRows(rows: GeoFixtureRow[]): BridgeRow[] {
+  return rows.map((r) => ({ ...r }))
+}
+
+/**
  * Run the universal aggregate compliance cases against `opts.bridge`.
  * Caller is responsible for seeding the fixture into `opts.target`
  * BEFORE this runs.
  */
 export function runAggregateCompliance(opts: AggregateSuiteOptions): void {
-  const { getBridge, target, capabilities: caps } = opts
+  const { getBridge, target, capabilities: caps, joinChildFixtureTarget, geoFixtureTarget } = opts
 
   describe('aggregate compliance', () => {
     if (!caps.supports) {
@@ -456,6 +564,252 @@ export function runAggregateCompliance(opts: AggregateSuiteOptions): void {
         for (let i = 1; i < rows.length; i++) {
           expect(rows[i - 1]!.count).toBeGreaterThanOrEqual(rows[i]!.count)
         }
+      })
+    })
+
+    // ─── joins ───────────────────────────────────────────────────
+    //
+    // Six cases gated on `caps.joins === true` AND
+    // `joinChildFixtureTarget` being supplied. The fixture pairs
+    // `aggregateFixture()` (parents, `id`) with `joinChildFixture()`
+    // (children, `pk`); two pks are intentionally absent so the
+    // LEFT JOIN preservation case has unmatched parents.
+    const joinsEnabled = caps.joins && joinChildFixtureTarget !== undefined
+    describe('joins', () => {
+      const joins = joinChildFixtureTarget
+        ? [{ target: joinChildFixtureTarget, alias: 'c', kind: 'left', on: { local: 'id', foreign: 'pk' } } as const]
+        : []
+      const childRows = joinChildFixture()
+
+      it.skipIf(!joinsEnabled)('31. dim from joined table groups by region', async () => {
+        const rows = await collect(
+          agg({
+            joins,
+            dimensions: [{ field: 'region', from: 'c' }],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+          }),
+        )
+        // Drop-null filter on the joined region drops parents whose FK
+        // didn't match (id=15, id=20 — see joinChildFixture skips).
+        const total = rows.reduce((s, r) => s + r.count, 0)
+        expect(total).toBe(childRows.length) // 48
+        const buckets = new Set(rows.map((r) => r.dims['region']))
+        expect(buckets.size).toBeLessThanOrEqual(3)
+      })
+
+      it.skipIf(!joinsEnabled)('32. base dim + joined dim compose', async () => {
+        const rows = await collect(
+          agg({
+            joins,
+            dimensions: [{ field: 'cuisine' }, { field: 'region', from: 'c' }],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+          }),
+        )
+        const total = rows.reduce((s, r) => s + r.count, 0)
+        // Drops: 2 parents with no matching child + 1 parent with
+        // null cuisine (id=50 — its child IS in the fixture but the
+        // null cuisine filter drops it on the base dim).
+        expect(total).toBe(childRows.length - 1) // 47
+        for (const r of rows) {
+          expect(r.dims['cuisine']).not.toBeNull()
+          expect(r.dims['region']).not.toBeNull()
+        }
+      })
+
+      it.skipIf(!joinsEnabled)('33. measure on base + dim on joined', async () => {
+        const rows = await collect(
+          agg({
+            joins,
+            dimensions: [{ field: 'region', from: 'c' }],
+            measures: { s: { agg: 'sum', column: 'views', accuracy: 'exact' } },
+          }),
+        )
+        const fix = aggregateFixture()
+        const childPks = new Set(childRows.map((r) => r.pk))
+        const expectedSum = fix
+          .filter((r) => childPks.has(r.id))
+          .reduce((s, r) => s + r.views, 0)
+        const observedSum = rows
+          .map((r) => Number(r.measures['s']))
+          .reduce((s, n) => s + n, 0)
+        expect(observedSum).toBeCloseTo(expectedSum, 0)
+      })
+
+      it.skipIf(!joinsEnabled)('34. LEFT JOIN preserves parents but drop-null filter drops unmatched', async () => {
+        // No-join control: 50 parent rows.
+        const noJoinRows = await collect(
+          agg({
+            dimensions: [],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+          }),
+        )
+        expect(Number(noJoinRows[0]!.measures['c'])).toBe(50)
+
+        // With join + drop-null on the joined region, two parents drop.
+        const withJoinRows = await collect(
+          agg({
+            joins,
+            dimensions: [{ field: 'region', from: 'c' }],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+          }),
+        )
+        const withJoinTotal = withJoinRows.reduce((s, r) => s + r.count, 0)
+        expect(withJoinTotal).toBe(childRows.length) // 48
+      })
+
+      it.skipIf(!joinsEnabled || !caps.havingOnAggregates)('35. having on count + joined dim', async () => {
+        const rows = await collect(
+          agg({
+            joins,
+            dimensions: [{ field: 'region', from: 'c' }],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+            having: { count: { $gte: 10 } },
+          }),
+        )
+        for (const r of rows) expect(r.count).toBeGreaterThanOrEqual(10)
+      })
+
+      it.skipIf(!joinsEnabled || !caps.topK)('36. top_k measure with joined dim', async () => {
+        const rows = await collect(
+          agg({
+            joins,
+            dimensions: [{ field: 'region', from: 'c' }],
+            measures: { t: { agg: 'top_k', column: 'country', k: 2, accuracy: 'exact' } },
+          }),
+        )
+        for (const r of rows) {
+          const top = r.measures['t'] as Array<{ key: string; count: number }>
+          expect(Array.isArray(top)).toBe(true)
+          expect(top.length).toBeLessThanOrEqual(2)
+          if (top.length >= 2) {
+            expect(top[0]!.count).toBeGreaterThanOrEqual(top[1]!.count)
+          }
+        }
+      })
+    })
+
+    // ─── geo bucket pushdown ─────────────────────────────────────
+    //
+    // Native geohash / h3 encoders. Each block runs only when the
+    // bridge advertises the cap AND the harness seeded the geo
+    // fixture into a table the suite can name. Geo dim's `field` is
+    // a label — the actual column references live on the bucket
+    // (`latField`/`lngField` or `geoField`).
+    const geoEnabled = geoFixtureTarget !== undefined
+    const geoTarget = geoFixtureTarget ?? target
+
+    const geoAgg = (rest: Omit<AggregateOptions, 'target'>): AsyncIterable<AggregateRow> => {
+      const bridge = getBridge()
+      if (!bridge.aggregate) throw new Error('Bridge does not implement aggregate()')
+      return bridge.aggregate({ target: geoTarget, ...rest })
+    }
+
+    describe('geohash bucket', () => {
+      it.skipIf(!geoEnabled || !caps.geohashBucket)('37. precision 5 buckets cluster cities', async () => {
+        const rows = await collect(
+          geoAgg({
+            dimensions: [
+              { field: 'cell', bucket: { type: 'geohash', precision: 5, latField: 'lat', lngField: 'lng' } },
+            ],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+          }),
+        )
+        const total = rows.reduce((s, r) => s + r.count, 0)
+        expect(total).toBe(geoFixture().length)
+        for (const r of rows) {
+          const v = r.dims['cell']
+          expect(typeof v).toBe('string')
+          expect(v as string).toMatch(/^[0-9a-z]+$/)
+          expect((v as string).length).toBeGreaterThanOrEqual(1)
+          expect((v as string).length).toBeLessThanOrEqual(5)
+        }
+      })
+
+      it.skipIf(!geoEnabled || !caps.geohashBucket)('38. precision 7 splits clusters', async () => {
+        const p5 = await collect(
+          geoAgg({
+            dimensions: [
+              { field: 'cell', bucket: { type: 'geohash', precision: 5, latField: 'lat', lngField: 'lng' } },
+            ],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+          }),
+        )
+        const p7 = await collect(
+          geoAgg({
+            dimensions: [
+              { field: 'cell', bucket: { type: 'geohash', precision: 7, latField: 'lat', lngField: 'lng' } },
+            ],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+          }),
+        )
+        // Higher precision can never produce fewer cells.
+        expect(p7.length).toBeGreaterThanOrEqual(p5.length)
+      })
+
+      it.skipIf(!geoEnabled || !caps.geohashBucket)('39. count across geohash buckets sums to fixture rows', async () => {
+        const rows = await collect(
+          geoAgg({
+            dimensions: [
+              { field: 'cell', bucket: { type: 'geohash', precision: 6, latField: 'lat', lngField: 'lng' } },
+            ],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+          }),
+        )
+        const total = rows.reduce((s, r) => s + Number(r.measures['c']), 0)
+        expect(total).toBe(geoFixture().length)
+      })
+    })
+
+    describe('h3 bucket', () => {
+      it.skipIf(!geoEnabled || !caps.h3Bucket)('40. h3 resolution 7 emits cell ids per row', async () => {
+        const rows = await collect(
+          geoAgg({
+            dimensions: [
+              { field: 'cell', bucket: { type: 'h3', resolution: 7, latField: 'lat', lngField: 'lng' } },
+            ],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+          }),
+        )
+        const total = rows.reduce((s, r) => s + r.count, 0)
+        expect(total).toBe(geoFixture().length)
+        for (const r of rows) {
+          // ClickHouse returns h3 cells as 64-bit ints; whatever the engine
+          // chose, just assert the bucket key is non-null + serializable.
+          expect(r.dims['cell']).not.toBeNull()
+        }
+      })
+
+      it.skipIf(!geoEnabled || !caps.h3Bucket)('41. h3 resolution 4 buckets are coarser than resolution 9', async () => {
+        const r4 = await collect(
+          geoAgg({
+            dimensions: [
+              { field: 'cell', bucket: { type: 'h3', resolution: 4, latField: 'lat', lngField: 'lng' } },
+            ],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+          }),
+        )
+        const r9 = await collect(
+          geoAgg({
+            dimensions: [
+              { field: 'cell', bucket: { type: 'h3', resolution: 9, latField: 'lat', lngField: 'lng' } },
+            ],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+          }),
+        )
+        expect(r9.length).toBeGreaterThanOrEqual(r4.length)
+      })
+
+      it.skipIf(!geoEnabled || !caps.h3Bucket)('42. count across h3 cells sums to fixture rows', async () => {
+        const rows = await collect(
+          geoAgg({
+            dimensions: [
+              { field: 'cell', bucket: { type: 'h3', resolution: 8, latField: 'lat', lngField: 'lng' } },
+            ],
+            measures: { c: { agg: 'count', accuracy: 'exact' } },
+          }),
+        )
+        const total = rows.reduce((s, r) => s + Number(r.measures['c']), 0)
+        expect(total).toBe(geoFixture().length)
       })
     })
   })

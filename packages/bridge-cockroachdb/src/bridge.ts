@@ -17,12 +17,15 @@ import {
   buildAggregateSql,
   buildWhereSql,
   executeAggregateQueries,
+  postgisGeohashExpr,
+  postgisDecodeGeoField,
   COCKROACH_DIALECT,
   COCKROACH_CAPABILITIES,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type SqlAggregateDialect,
   type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
 
@@ -46,6 +49,15 @@ const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
 export interface CockroachdbBridgeConfig {
   url: string
   pool?: { min?: number; max?: number }
+  /**
+   * Enable geohash bucket pushdown via PostGIS-on-Cockroach. Cockroach
+   * does NOT include PostGIS by default — operators must install it
+   * out-of-band (Cockroach has had partial PostGIS support since v20.2,
+   * but coverage of `ST_GeoHash` / `ST_MakePoint` varies by version).
+   * Default `false`. Leave off unless you've verified the extension
+   * works on your cluster.
+   */
+  enablePostgis?: boolean
 }
 
 export class CockroachdbBridge implements Bridge {
@@ -107,6 +119,7 @@ export class CockroachdbBridge implements Bridge {
     this.config = {
       url,
       pool: config['pool'] as CockroachdbBridgeConfig['pool'],
+      enablePostgis: config['enablePostgis'] === true,
     }
   }
 
@@ -206,7 +219,8 @@ export class CockroachdbBridge implements Bridge {
   }
 
   aggregateCapabilities(): BridgeAggregateCapabilities {
-    return COCKROACH_CAPABILITIES
+    if (!this.config.enablePostgis) return COCKROACH_CAPABILITIES
+    return { ...COCKROACH_CAPABILITIES, geoBucket: true, geohashBucket: true }
   }
 
   aggregate(
@@ -214,8 +228,11 @@ export class CockroachdbBridge implements Bridge {
     _ctx?: BridgeExecutionContext,
   ): AsyncIterable<AggregateRow> {
     const pool = this.assertPool()
+    const dialect: SqlAggregateDialect = this.config.enablePostgis
+      ? { ...COCKROACH_DIALECT, geohashExpr: postgisGeohashExpr, decodeGeoField: postgisDecodeGeoField }
+      : COCKROACH_DIALECT
     return executeAggregateQueries(
-      buildAggregateSql(opts, COCKROACH_DIALECT),
+      buildAggregateSql(opts, dialect),
       async (sql, params) => {
         const result = await pool.query(sql, params as unknown[])
         return result.rows as Array<Record<string, unknown>>

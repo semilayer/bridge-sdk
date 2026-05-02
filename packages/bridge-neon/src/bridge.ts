@@ -15,12 +15,15 @@ import {
   buildAggregateSql,
   buildWhereSql,
   executeAggregateQueries,
+  postgisGeohashExpr,
+  postgisDecodeGeoField,
   POSTGRES_DIALECT,
   POSTGRES_FAMILY_CAPABILITIES,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type SqlAggregateDialect,
   type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
 
@@ -40,6 +43,12 @@ const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_.]*$/
 
 export interface NeonBridgeConfig {
   url: string
+  /**
+   * Enable geohash bucket pushdown via PostGIS. Neon supports the
+   * PostGIS extension; the bridge does not install it. Enable only on
+   * branches that have run `CREATE EXTENSION postgis`. Default `false`.
+   */
+  enablePostgis?: boolean
 }
 
 export class NeonBridge implements Bridge {
@@ -76,7 +85,7 @@ export class NeonBridge implements Bridge {
     if (!url || typeof url !== 'string') {
       throw new Error('NeonBridge requires a "url" config string')
     }
-    this.config = { url }
+    this.config = { url, enablePostgis: config['enablePostgis'] === true }
   }
 
   async connect(): Promise<void> {
@@ -167,7 +176,8 @@ export class NeonBridge implements Bridge {
   }
 
   aggregateCapabilities(): BridgeAggregateCapabilities {
-    return POSTGRES_FAMILY_CAPABILITIES
+    if (!this.config.enablePostgis) return POSTGRES_FAMILY_CAPABILITIES
+    return { ...POSTGRES_FAMILY_CAPABILITIES, geoBucket: true, geohashBucket: true }
   }
 
   aggregate(
@@ -175,8 +185,11 @@ export class NeonBridge implements Bridge {
     _ctx?: BridgeExecutionContext,
   ): AsyncIterable<AggregateRow> {
     const sql = this.assertSql()
+    const dialect: SqlAggregateDialect = this.config.enablePostgis
+      ? { ...POSTGRES_DIALECT, geohashExpr: postgisGeohashExpr, decodeGeoField: postgisDecodeGeoField }
+      : POSTGRES_DIALECT
     return executeAggregateQueries(
-      buildAggregateSql(opts, POSTGRES_DIALECT),
+      buildAggregateSql(opts, dialect),
       async (q, params) => {
         const result = await sql(q, params as unknown[])
         return result.rows as Array<Record<string, unknown>>

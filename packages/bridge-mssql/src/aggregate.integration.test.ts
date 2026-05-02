@@ -10,10 +10,15 @@ import type { ConnectionPool, config as MssqlConfig } from 'mssql'
 import { describe, beforeAll, afterAll } from 'vitest'
 import { MssqlBridge } from './bridge.js'
 import { MSSQL_CAPABILITIES } from '@semilayer/bridge-sdk'
-import { aggregateFixture, runAggregateCompliance } from '@semilayer/bridge-sdk/testing'
+import {
+  aggregateFixture,
+  joinChildFixture,
+  runAggregateCompliance,
+} from '@semilayer/bridge-sdk/testing'
 
 const DATABASE_URL = process.env['DATABASE_URL']
 const TABLE = 'sl_agg_fixture'
+const JOIN_CHILD_TABLE = 'sl_agg_join_child'
 
 describe.skipIf(!DATABASE_URL)('MssqlBridge aggregate integration', () => {
   let setup: ConnectionPool
@@ -59,6 +64,22 @@ describe.skipIf(!DATABASE_URL)('MssqlBridge aggregate integration', () => {
       )
     }
 
+    await setup.request().query(
+      `IF OBJECT_ID('${JOIN_CHILD_TABLE}', 'U') IS NOT NULL DROP TABLE [${JOIN_CHILD_TABLE}]`,
+    )
+    await setup.request().query(`
+      CREATE TABLE [${JOIN_CHILD_TABLE}] (
+        [pk]     INT PRIMARY KEY,
+        [region] VARCHAR(10) NOT NULL,
+        [tier]   VARCHAR(10) NOT NULL
+      )
+    `)
+    for (const r of joinChildFixture()) {
+      await setup.request().query(
+        `INSERT INTO [${JOIN_CHILD_TABLE}] ([pk], [region], [tier]) VALUES (${r.pk}, ${sqlEscape(r.region)}, ${sqlEscape(r.tier)})`,
+      )
+    }
+
     // Parse DATABASE_URL to MssqlBridge config.
     bridge = new MssqlBridge({ url: DATABASE_URL! })
     await bridge.connect()
@@ -70,6 +91,9 @@ describe.skipIf(!DATABASE_URL)('MssqlBridge aggregate integration', () => {
     // table first while both still point at a live pool.
     if (setup) {
       await setup.request().query(`IF OBJECT_ID('${TABLE}', 'U') IS NOT NULL DROP TABLE [${TABLE}]`)
+      await setup.request().query(
+        `IF OBJECT_ID('${JOIN_CHILD_TABLE}', 'U') IS NOT NULL DROP TABLE [${JOIN_CHILD_TABLE}]`,
+      )
       await setup.close()
     }
     await bridge?.disconnect()
@@ -79,5 +103,6 @@ describe.skipIf(!DATABASE_URL)('MssqlBridge aggregate integration', () => {
     getBridge: () => bridge,
     target: TABLE,
     capabilities: MSSQL_CAPABILITIES,
+    joinChildFixtureTarget: JOIN_CHILD_TABLE,
   })
 })

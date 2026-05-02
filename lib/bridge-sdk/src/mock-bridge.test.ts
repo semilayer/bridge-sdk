@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { MockBridge } from './mock-bridge.js'
 import { createBridgeTestSuite } from './test-suite.js'
-import { aggregateFixture, fixtureToBridgeRows, collectAggregateStream as collect } from './aggregate-suite.js'
+import {
+  aggregateFixture,
+  fixtureToBridgeRows,
+  joinChildFixture,
+  joinChildFixtureToBridgeRows,
+  collectAggregateStream as collect,
+} from './aggregate-suite.js'
 import type { BridgeRow } from '@semilayer/core'
 
 const seedRows: BridgeRow[] = [
@@ -13,11 +19,13 @@ const seedRows: BridgeRow[] = [
 ]
 
 const FIXTURE_TARGET = 'agg_fixture'
+const JOIN_CHILD_TARGET = 'agg_join_child'
 
 function createSeededBridge(): MockBridge {
   const bridge = new MockBridge()
   bridge.seed('items', seedRows)
   bridge.seed(FIXTURE_TARGET, fixtureToBridgeRows(aggregateFixture()))
+  bridge.seed(JOIN_CHILD_TARGET, joinChildFixtureToBridgeRows(joinChildFixture()))
   return bridge
 }
 
@@ -25,6 +33,7 @@ createBridgeTestSuite({
   factory: () => createSeededBridge(),
   seed: { target: 'items', rows: seedRows, primaryKey: 'id' },
   aggregateFixtureTarget: FIXTURE_TARGET,
+  joinChildFixtureTarget: JOIN_CHILD_TARGET,
 })
 
 describe('MockBridge extras', () => {
@@ -318,5 +327,118 @@ describe('MockBridge.aggregate — direct reducer checks', () => {
       n++
     }
     expect(n).toBeGreaterThan(0)
+  })
+})
+
+describe('MockBridge.aggregate — joins', () => {
+  let bridge: MockBridge
+
+  beforeAll(async () => {
+    bridge = createSeededBridge()
+    await bridge.connect()
+  })
+
+  it('declares joins capability', () => {
+    expect(bridge.aggregateCapabilities().joins).toBe(true)
+  })
+
+  it('groups by a joined dim with from-alias resolution', async () => {
+    const rows = await collect(
+      bridge.aggregate({
+        target: FIXTURE_TARGET,
+        joins: [
+          { target: JOIN_CHILD_TARGET, alias: 'c', kind: 'left', on: { local: 'id', foreign: 'pk' } },
+        ],
+        dimensions: [{ field: 'region', from: 'c' }],
+        measures: { c: { agg: 'count', accuracy: 'exact' } },
+      }),
+    )
+    const total = rows.reduce((s, r) => s + r.count, 0)
+    // 50 parents - 2 unmatched (id=15, id=20 skipped) = 48.
+    expect(total).toBe(48)
+    const buckets = new Set(rows.map((r) => r.dims['region']))
+    expect(buckets.has('EMEA')).toBe(true)
+    expect(buckets.has('AMER')).toBe(true)
+    expect(buckets.has('APAC')).toBe(true)
+  })
+
+  it('combines a base dim with a joined dim', async () => {
+    const rows = await collect(
+      bridge.aggregate({
+        target: FIXTURE_TARGET,
+        joins: [
+          { target: JOIN_CHILD_TARGET, alias: 'c', kind: 'left', on: { local: 'id', foreign: 'pk' } },
+        ],
+        dimensions: [{ field: 'cuisine' }, { field: 'region', from: 'c' }],
+        measures: { c: { agg: 'count', accuracy: 'exact' } },
+      }),
+    )
+    const total = rows.reduce((s, r) => s + r.count, 0)
+    // 50 - 2 unmatched - 1 null cuisine (id=50) = 47.
+    expect(total).toBe(47)
+    for (const r of rows) {
+      expect(r.dims['cuisine']).not.toBeNull()
+      expect(r.dims['region']).not.toBeNull()
+    }
+  })
+
+  it('measure on base + dim on joined sums correctly', async () => {
+    const rows = await collect(
+      bridge.aggregate({
+        target: FIXTURE_TARGET,
+        joins: [
+          { target: JOIN_CHILD_TARGET, alias: 'c', kind: 'left', on: { local: 'id', foreign: 'pk' } },
+        ],
+        dimensions: [{ field: 'region', from: 'c' }],
+        measures: { s: { agg: 'sum', column: 'views', accuracy: 'exact' } },
+      }),
+    )
+    const fix = aggregateFixture()
+    const childPks = new Set(joinChildFixture().map((r) => r.pk))
+    const expected = fix.filter((r) => childPks.has(r.id)).reduce((s, r) => s + r.views, 0)
+    const observed = rows.reduce((s, r) => s + Number(r.measures['s']), 0)
+    expect(observed).toBe(expected)
+  })
+
+  it('unmatched parents drop on the joined dim drop-null filter', async () => {
+    const noJoinRows = await collect(
+      bridge.aggregate({
+        target: FIXTURE_TARGET,
+        dimensions: [],
+        measures: { c: { agg: 'count', accuracy: 'exact' } },
+      }),
+    )
+    expect(noJoinRows[0]!.measures['c']).toBe(50)
+
+    const withJoinRows = await collect(
+      bridge.aggregate({
+        target: FIXTURE_TARGET,
+        joins: [
+          { target: JOIN_CHILD_TARGET, alias: 'c', kind: 'left', on: { local: 'id', foreign: 'pk' } },
+        ],
+        dimensions: [{ field: 'region', from: 'c' }],
+        measures: { c: { agg: 'count', accuracy: 'exact' } },
+      }),
+    )
+    const total = withJoinRows.reduce((s, r) => s + r.count, 0)
+    expect(total).toBe(48)
+  })
+
+  it('top_k composes with a joined dim', async () => {
+    const rows = await collect(
+      bridge.aggregate({
+        target: FIXTURE_TARGET,
+        joins: [
+          { target: JOIN_CHILD_TARGET, alias: 'c', kind: 'left', on: { local: 'id', foreign: 'pk' } },
+        ],
+        dimensions: [{ field: 'region', from: 'c' }],
+        measures: { t: { agg: 'top_k', column: 'country', k: 2, accuracy: 'exact' } },
+      }),
+    )
+    expect(rows.length).toBeGreaterThan(0)
+    for (const r of rows) {
+      const top = r.measures['t'] as Array<{ key: string; count: number }>
+      expect(top.length).toBeLessThanOrEqual(2)
+    }
   })
 })

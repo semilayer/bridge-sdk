@@ -157,4 +157,45 @@ describe('buildPostgresAggregate — SQL generator', () => {
     expect(built.mainSql).toContain('"cuisine" AS "dim_group"')
     expect(built.dimsSchema[0]!.outputKey).toBe('group')
   })
+
+  it('13. joins emit LEFT JOIN with qualified columns', () => {
+    const built = buildPostgresAggregate({
+      target: 'orders',
+      joins: [
+        { target: 'customers', alias: 'c', kind: 'left', on: { local: 'customer_id', foreign: 'id' } },
+      ],
+      dimensions: [{ field: 'country', from: 'c' }],
+      measures: { total: { agg: 'sum', column: 'amount', accuracy: 'exact' } },
+    })
+    expect(built.mainSql).toContain('FROM "orders" AS "t"')
+    expect(built.mainSql).toContain('LEFT JOIN "customers" AS "c" ON "t"."customer_id" = "c"."id"')
+    expect(built.mainSql).toContain('"c"."country"')
+    expect(built.mainSql).toContain('SUM("t"."amount")')
+  })
+
+  it('14. enablePostgis flips geohash bucket to native ST_GeoHash', () => {
+    const built = buildPostgresAggregate(
+      {
+        target: 'places',
+        dimensions: [
+          { field: 'cell', bucket: { type: 'geohash', precision: 5, latField: 'lat', lngField: 'lng' } },
+        ],
+        measures: { c: { agg: 'count', accuracy: 'exact' } },
+      },
+      { enablePostgis: true },
+    )
+    expect(built.mainSql).toContain('ST_GeoHash(ST_SetSRID(ST_MakePoint("lng", "lat"), 4326), 5)')
+  })
+
+  it('15. without enablePostgis, geohash dim throws (cap not advertised)', () => {
+    expect(() =>
+      buildPostgresAggregate({
+        target: 'places',
+        dimensions: [
+          { field: 'cell', bucket: { type: 'geohash', precision: 5, latField: 'lat', lngField: 'lng' } },
+        ],
+        measures: { c: { agg: 'count', accuracy: 'exact' } },
+      }),
+    ).toThrow(/geohashExpr/)
+  })
 })

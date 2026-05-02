@@ -44,7 +44,9 @@ export type {
   AnalyzeMeasureAgg,
   AnalyzeTimeBucket,
   DimensionBucket,
+  GeoBucketFields,
   AggregateDimension,
+  AggregateJoin,
   AggregateMeasure,
   AggregateOptions,
   AggregateRow,
@@ -98,5 +100,16 @@ export {
   SNOWFLAKE_CAPABILITIES,
   ORACLE_CAPABILITIES,
   DUCKDB_CAPABILITIES,
+  // Geo SQL helpers — opt-in per bridge.
+  postgisGeohashExpr,
+  postgisDecodeGeoField,
+  mysqlGeohashExpr,
+  mysqlDecodeGeoField,
+  clickhouseGeohashExpr,
+  clickhouseH3Expr,
+  bigqueryGeohashExpr,
+  bigqueryDecodeGeoField,
+  snowflakeGeohashExpr,
+  snowflakeDecodeGeoField,
 } from './sql-dialects.js'
 

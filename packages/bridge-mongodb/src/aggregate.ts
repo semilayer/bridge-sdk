@@ -43,15 +43,22 @@ export const MONGODB_AGGREGATE_CAPABILITIES: BridgeAggregateCapabilities = {
   minMax: true,
   // Mongo 7+: $percentile accumulator. Older clusters miss the operator
   // entirely — bridges may want to override the cap to `false` for legacy
-  // deployments. v1 ships exact since "is server new enough" can't be
-  // detected without a probe and we don't want capability-discovery I/O
-  // on every aggregateCapabilities() call.
+  // deployments. The default ships exact since "is server new enough"
+  // can't be detected without a probe and we don't want capability-
+  // discovery I/O on every aggregateCapabilities() call.
   percentile: 'exact',
   topK: true,
   havingOnAggregates: true,
   pushdownOrderLimit: true,
   sampling: true,
   emitsSketches: false,
+  // No SQL-style JOIN concept (`$lookup` exists but can't fan into a
+  // pre-grouped aggregate with the same semantics as LEFT JOIN), and
+  // no native geohash / h3 encoders. Planner upstream falls back to
+  // streaming reduce when callers request those shapes.
+  joins: false,
+  geohashBucket: false,
+  h3Bucket: false,
 }
 
 export interface BuiltMongoAggregate {
