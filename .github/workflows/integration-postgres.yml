@@ -23,7 +23,11 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # postgis image so the geohash bucket compliance cases (which
+        # exercise ST_GeoHash + ST_MakePoint) run against a real PostGIS
+        # install. Functionally identical to postgres:16 for everything
+        # else.
+        image: postgis/postgis:16-3.4
         env:
           POSTGRES_USER: testuser
           POSTGRES_PASSWORD: testpass

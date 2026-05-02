@@ -16,14 +16,32 @@ import {
   buildAggregateSql,
   buildWhereSql,
   executeAggregateQueries,
+  snowflakeGeohashExpr,
+  snowflakeDecodeGeoField,
   SNOWFLAKE_DIALECT,
   SNOWFLAKE_CAPABILITIES,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type SqlAggregateDialect,
   type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
+
+// Snowflake ships ST_GEOHASH + ST_MAKEPOINT natively — bake them into
+// the dialect once. H3 is not advertised: Snowflake's H3 family is
+// preview-tier; revisit when it goes GA.
+const SNOWFLAKE_DIALECT_WITH_GEO: SqlAggregateDialect = {
+  ...SNOWFLAKE_DIALECT,
+  geohashExpr: snowflakeGeohashExpr,
+  decodeGeoField: snowflakeDecodeGeoField,
+}
+
+const SNOWFLAKE_CAPABILITIES_WITH_GEO: BridgeAggregateCapabilities = {
+  ...SNOWFLAKE_CAPABILITIES,
+  geoBucket: true,
+  geohashBucket: true,
+}
 
 // Snowflake where dialect — double-quoted identifiers, `?` positional binds,
 // and native `ILIKE` (the helper default works as-is). Snowflake's LIKE
@@ -273,7 +291,7 @@ export class SnowflakeBridge implements Bridge {
   }
 
   aggregateCapabilities(): BridgeAggregateCapabilities {
-    return SNOWFLAKE_CAPABILITIES
+    return SNOWFLAKE_CAPABILITIES_WITH_GEO
   }
 
   aggregate(
@@ -282,7 +300,7 @@ export class SnowflakeBridge implements Bridge {
   ): AsyncIterable<AggregateRow> {
     const conn = this.assertConn()
     return executeAggregateQueries(
-      buildAggregateSql(opts, SNOWFLAKE_DIALECT),
+      buildAggregateSql(opts, SNOWFLAKE_DIALECT_WITH_GEO),
       async (sql, params) => {
         const rows = await executeQuery(conn, sql, params as snowflake.Bind[])
         return rows

@@ -10,15 +10,24 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import pg from 'pg'
 import { PostgresBridge } from './bridge.js'
-import { POSTGRES_FAMILY_CAPABILITIES } from '@semilayer/bridge-sdk'
+import { postgresAggregateCapabilities } from './aggregate.js'
 import {
   aggregateFixture,
   collectAggregateStream as collect,
+  geoFixture,
+  joinChildFixture,
   runAggregateCompliance,
 } from '@semilayer/bridge-sdk/testing'
 
 const DATABASE_URL = process.env['DATABASE_URL']
 const TABLE = 'sl_agg_fixture'
+const JOIN_CHILD_TABLE = 'sl_agg_join_child'
+const GEO_TABLE = 'sl_agg_geo_fixture'
+
+// PostGIS is optional — the integration job uses the postgis-enabled
+// image. When the extension isn't available we still want every other
+// case to run, so the geo bits are gated on a probe at beforeAll.
+const ENABLE_POSTGIS = process.env['POSTGIS'] !== '0'
 
 describe.skipIf(!DATABASE_URL)('PostgresBridge aggregate integration', () => {
   let setup: pg.Client
@@ -27,6 +36,12 @@ describe.skipIf(!DATABASE_URL)('PostgresBridge aggregate integration', () => {
   beforeAll(async () => {
     setup = new pg.Client({ connectionString: DATABASE_URL })
     await setup.connect()
+
+    if (ENABLE_POSTGIS) {
+      // Must succeed when ENABLE_POSTGIS is on — the workflow uses the
+      // postgis/postgis image. Set POSTGIS=0 to skip on plain postgres.
+      await setup.query('CREATE EXTENSION IF NOT EXISTS postgis')
+    }
 
     await setup.query(`DROP TABLE IF EXISTS ${TABLE}`)
     await setup.query(`
@@ -50,21 +65,60 @@ describe.skipIf(!DATABASE_URL)('PostgresBridge aggregate integration', () => {
       )
     }
 
-    bridge = new PostgresBridge({ url: DATABASE_URL!, ipFamily: 0 })
+    await setup.query(`DROP TABLE IF EXISTS ${JOIN_CHILD_TABLE}`)
+    await setup.query(`
+      CREATE TABLE ${JOIN_CHILD_TABLE} (
+        pk     INTEGER PRIMARY KEY,
+        region TEXT NOT NULL,
+        tier   TEXT NOT NULL
+      )
+    `)
+    for (const r of joinChildFixture()) {
+      await setup.query(
+        `INSERT INTO ${JOIN_CHILD_TABLE} (pk, region, tier) VALUES ($1, $2, $3)`,
+        [r.pk, r.region, r.tier],
+      )
+    }
+
+    await setup.query(`DROP TABLE IF EXISTS ${GEO_TABLE}`)
+    await setup.query(`
+      CREATE TABLE ${GEO_TABLE} (
+        id   INTEGER PRIMARY KEY,
+        lat  DOUBLE PRECISION NOT NULL,
+        lng  DOUBLE PRECISION NOT NULL,
+        city TEXT NOT NULL
+      )
+    `)
+    for (const r of geoFixture()) {
+      await setup.query(
+        `INSERT INTO ${GEO_TABLE} (id, lat, lng, city) VALUES ($1, $2, $3, $4)`,
+        [r.id, r.lat, r.lng, r.city],
+      )
+    }
+
+    bridge = new PostgresBridge({
+      url: DATABASE_URL!,
+      ipFamily: 0,
+      enablePostgis: ENABLE_POSTGIS,
+    })
     await bridge.connect()
   })
 
   afterAll(async () => {
     await bridge?.disconnect()
     await setup?.query(`DROP TABLE IF EXISTS ${TABLE}`)
+    await setup?.query(`DROP TABLE IF EXISTS ${JOIN_CHILD_TABLE}`)
+    await setup?.query(`DROP TABLE IF EXISTS ${GEO_TABLE}`)
     await setup?.end()
   })
 
-  // ─── Universal compliance — ~30 cases ─────────────────────────────
+  // ─── Universal compliance — base + joins + geo when enabled ───────
   runAggregateCompliance({
     getBridge: () => bridge,
     target: TABLE,
-    capabilities: POSTGRES_FAMILY_CAPABILITIES,
+    capabilities: postgresAggregateCapabilities({ enablePostgis: ENABLE_POSTGIS }),
+    joinChildFixtureTarget: JOIN_CHILD_TABLE,
+    geoFixtureTarget: GEO_TABLE,
   })
 
   // ─── Postgres-specific behavior ───────────────────────────────────

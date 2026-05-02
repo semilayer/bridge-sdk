@@ -17,12 +17,15 @@ import {
   buildAggregateSql,
   buildWhereSql,
   executeAggregateQueries,
+  mysqlGeohashExpr,
+  mysqlDecodeGeoField,
   MYSQL_DIALECT,
   MYSQL_FAMILY_CAPABILITIES,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type SqlAggregateDialect,
   type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
 
@@ -49,6 +52,12 @@ export interface MariadbBridgeConfig {
   database?: string
   ssl?: boolean
   pool?: { min?: number; max?: number }
+  /**
+   * Enable geohash bucket pushdown via `ST_GeoHash(POINT(lng, lat),
+   * precision)` — supported on MariaDB 11+. Default `false`. MariaDB
+   * has no native H3.
+   */
+  enableGeohash?: boolean
 }
 
 export class MariadbBridge implements Bridge {
@@ -111,6 +120,7 @@ export class MariadbBridge implements Bridge {
       database,
       ssl,
       pool: config['pool'] as MariadbBridgeConfig['pool'],
+      enableGeohash: config['enableGeohash'] === true,
     }
   }
 
@@ -236,7 +246,8 @@ export class MariadbBridge implements Bridge {
   }
 
   aggregateCapabilities(): BridgeAggregateCapabilities {
-    return MYSQL_FAMILY_CAPABILITIES
+    if (!this.config.enableGeohash) return MYSQL_FAMILY_CAPABILITIES
+    return { ...MYSQL_FAMILY_CAPABILITIES, geoBucket: true, geohashBucket: true }
   }
 
   aggregate(
@@ -244,8 +255,11 @@ export class MariadbBridge implements Bridge {
     _ctx?: BridgeExecutionContext,
   ): AsyncIterable<AggregateRow> {
     const pool = this.assertPool()
+    const dialect: SqlAggregateDialect = this.config.enableGeohash
+      ? { ...MYSQL_DIALECT, geohashExpr: mysqlGeohashExpr, decodeGeoField: mysqlDecodeGeoField }
+      : MYSQL_DIALECT
     return executeAggregateQueries(
-      buildAggregateSql(opts, MYSQL_DIALECT),
+      buildAggregateSql(opts, dialect),
       async (sql, params) => {
         const rows = await pool.query(sql, params)
         return rows as Array<Record<string, unknown>>

@@ -165,12 +165,14 @@ export class MockBridge implements Bridge {
   }
 
   /**
-   * Aggregate via the shared streaming reducer. MockBridge declares full
-   * `STREAMING_AGGREGATE_CAPABILITIES` so the compliance suite exercises
-   * the entire matrix against the fallback path.
+   * Aggregate via the shared streaming reducer. MockBridge overlays
+   * `joins: true` on top of `STREAMING_AGGREGATE_CAPABILITIES` because
+   * it implements an in-memory enrichment for joins below — the
+   * streaming reducer itself does not support joins, so other bridges
+   * delegating to `streamingAggregate` keep `joins: false`.
    */
   aggregateCapabilities(): BridgeAggregateCapabilities {
-    return STREAMING_AGGREGATE_CAPABILITIES
+    return { ...STREAMING_AGGREGATE_CAPABILITIES, joins: true }
   }
 
   aggregate(
@@ -178,7 +180,62 @@ export class MockBridge implements Bridge {
     _ctx?: BridgeExecutionContext,
   ): AsyncIterable<AggregateRow> {
     this.assertConnected()
+    if (opts.joins && opts.joins.length > 0) {
+      return streamingAggregate(this, opts, {
+        source: this.joinedRowSource(opts),
+      })
+    }
     return streamingAggregate(this, opts)
+  }
+
+  /**
+   * Build an async iterable of base-target rows enriched with
+   * `<alias>.<column>` keys for each LEFT JOIN entry. The streaming
+   * reducer's `bucketValue` reads those keys when a dim has
+   * `from = '<alias>'`. Children are loaded once per call (no
+   * pagination — MockBridge holds them in-memory) and indexed on
+   * `on.foreign`. Parents whose FK doesn't match a child get the
+   * alias-keys present but valued `null`, which the drop-null filter
+   * in the reducer drops on dim resolution — matching SQL LEFT JOIN +
+   * `WHERE <alias>.<col> IS NOT NULL` semantics.
+   */
+  private async *joinedRowSource(
+    opts: AggregateOptions,
+  ): AsyncIterable<BridgeRow> {
+    const baseRows = this.getRows(opts.target)
+    const joins = opts.joins ?? []
+    const childIndexes: Array<{
+      alias: string
+      localCol: string
+      childCols: string[]
+      byKey: Map<unknown, BridgeRow>
+    }> = []
+    for (const j of joins) {
+      const childRows = this.getRows(j.target)
+      const byKey = new Map<unknown, BridgeRow>()
+      const cols = new Set<string>()
+      for (const r of childRows) {
+        byKey.set(r[j.on.foreign], r)
+        for (const k of Object.keys(r)) cols.add(k)
+      }
+      childIndexes.push({
+        alias: j.alias,
+        localCol: j.on.local,
+        childCols: [...cols],
+        byKey,
+      })
+    }
+    for (const row of baseRows) {
+      const enriched: BridgeRow = { ...row }
+      for (const idx of childIndexes) {
+        const fk = row[idx.localCol]
+        const child = idx.byKey.get(fk)
+        for (const col of idx.childCols) {
+          enriched[`${idx.alias}.${col}`] = child ? child[col] ?? null : null
+        }
+      }
+      yield enriched
+    }
   }
 
   private assertConnected(): void {

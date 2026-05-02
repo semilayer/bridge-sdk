@@ -17,12 +17,15 @@ import {
   buildAggregateSql,
   buildWhereSql,
   executeAggregateQueries,
+  mysqlGeohashExpr,
+  mysqlDecodeGeoField,
   MYSQL_DIALECT,
   MYSQL_FAMILY_CAPABILITIES,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type SqlAggregateDialect,
   type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
 
@@ -54,6 +57,14 @@ export interface MysqlBridgeConfig {
   password?: string
   database?: string
   pool?: { min?: number; max?: number }
+  /**
+   * Enable geohash bucket pushdown via `ST_GeoHash(POINT(lng, lat),
+   * precision)` — native on MySQL 8.0+. Set to `false` (default) to
+   * keep the current SQL surface; flip on when the connected server
+   * is 8.0+ and supports the function. MySQL has no native H3, so
+   * `h3Bucket` stays `false` regardless.
+   */
+  enableGeohash?: boolean
 }
 
 export class MysqlBridge implements Bridge {
@@ -114,6 +125,7 @@ export class MysqlBridge implements Bridge {
       password,
       database,
       pool: config['pool'] as MysqlBridgeConfig['pool'],
+      enableGeohash: config['enableGeohash'] === true,
     }
   }
 
@@ -234,7 +246,8 @@ export class MysqlBridge implements Bridge {
   }
 
   aggregateCapabilities(): BridgeAggregateCapabilities {
-    return MYSQL_FAMILY_CAPABILITIES
+    if (!this.config.enableGeohash) return MYSQL_FAMILY_CAPABILITIES
+    return { ...MYSQL_FAMILY_CAPABILITIES, geoBucket: true, geohashBucket: true }
   }
 
   aggregate(
@@ -242,8 +255,11 @@ export class MysqlBridge implements Bridge {
     _ctx?: BridgeExecutionContext,
   ): AsyncIterable<AggregateRow> {
     const pool = this.assertPool()
+    const dialect: SqlAggregateDialect = this.config.enableGeohash
+      ? { ...MYSQL_DIALECT, geohashExpr: mysqlGeohashExpr, decodeGeoField: mysqlDecodeGeoField }
+      : MYSQL_DIALECT
     return executeAggregateQueries(
-      buildAggregateSql(opts, MYSQL_DIALECT),
+      buildAggregateSql(opts, dialect),
       async (sql, params) => {
         const [rows] = await pool.query(sql, params as SqlParams)
         return rows as Array<Record<string, unknown>>

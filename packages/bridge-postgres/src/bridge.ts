@@ -17,7 +17,7 @@ import type {
 import { introspect, listTables } from './introspect.js'
 import {
   buildPostgresAggregate,
-  POSTGRES_AGGREGATE_CAPABILITIES,
+  postgresAggregateCapabilities,
 } from './aggregate.js'
 import {
   buildWhereSql,
@@ -116,6 +116,15 @@ export interface PostgresBridgeConfig {
    * to fail fast when the target is unreachable. Set to 0 to disable.
    */
   connectionTimeoutMillis?: number
+  /**
+   * Enable geohash bucket pushdown via PostGIS. Requires `CREATE
+   * EXTENSION postgis` on the connected database. When `true`, the
+   * bridge advertises `geohashBucket: true` and emits
+   * `ST_GeoHash(ST_SetSRID(ST_MakePoint(lng, lat), 4326), precision)`
+   * for `{ type: 'geohash' }` dims; otherwise those dims fall through
+   * to the planner's streaming-reduce path. Default `false`.
+   */
+  enablePostgis?: boolean
 }
 
 export class PostgresBridge implements Bridge {
@@ -197,11 +206,13 @@ export class PostgresBridge implements Bridge {
       typeof config['connectionTimeoutMillis'] === 'number'
         ? (config['connectionTimeoutMillis'] as number)
         : 10_000
+    const enablePostgis = config['enablePostgis'] === true
     this.config = {
       url,
       pool: config['pool'] as PostgresBridgeConfig['pool'],
       ipFamily,
       connectionTimeoutMillis,
+      enablePostgis,
     }
   }
 
@@ -454,7 +465,7 @@ export class PostgresBridge implements Bridge {
   // -------------------------------------------------------------------
 
   aggregateCapabilities(): BridgeAggregateCapabilities {
-    return POSTGRES_AGGREGATE_CAPABILITIES
+    return postgresAggregateCapabilities({ enablePostgis: this.config.enablePostgis })
   }
 
   aggregate(
@@ -462,10 +473,13 @@ export class PostgresBridge implements Bridge {
     _ctx?: BridgeExecutionContext,
   ): AsyncIterable<AggregateRow> {
     const pool = this.assertPool()
-    return executeAggregateQueries(buildPostgresAggregate(opts), async (sql, params) => {
-      const result = await pool.query(sql, params as unknown[])
-      return result.rows as Array<Record<string, unknown>>
-    })
+    return executeAggregateQueries(
+      buildPostgresAggregate(opts, { enablePostgis: this.config.enablePostgis }),
+      async (sql, params) => {
+        const result = await pool.query(sql, params as unknown[])
+        return result.rows as Array<Record<string, unknown>>
+      },
+    )
   }
 
   // -------------------------------------------------------------------

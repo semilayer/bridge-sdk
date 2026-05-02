@@ -17,14 +17,33 @@ import {
   buildAggregateSql,
   buildWhereSql,
   executeAggregateQueries,
+  clickhouseGeohashExpr,
+  clickhouseH3Expr,
   CLICKHOUSE_DIALECT,
   CLICKHOUSE_CAPABILITIES,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type SqlAggregateDialect,
   type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
+
+// ClickHouse ships geohashEncode + geoToH3 as built-ins — no extension
+// or storage-engine gate. Compose them into the dialect once and reuse;
+// the cap is unconditionally true.
+const CLICKHOUSE_DIALECT_WITH_GEO: SqlAggregateDialect = {
+  ...CLICKHOUSE_DIALECT,
+  geohashExpr: clickhouseGeohashExpr,
+  h3Expr: clickhouseH3Expr,
+}
+
+const CLICKHOUSE_CAPABILITIES_WITH_GEO: BridgeAggregateCapabilities = {
+  ...CLICKHOUSE_CAPABILITIES,
+  geoBucket: true,
+  geohashBucket: true,
+  h3Bucket: true,
+}
 
 // ClickHouse where dialect — backtick-quoted identifiers, `?` placeholders
 // (rebound to `{p0:Type}` at execution time, see `bindParams` below), and
@@ -292,7 +311,7 @@ export class ClickhouseBridge implements Bridge {
   }
 
   aggregateCapabilities(): BridgeAggregateCapabilities {
-    return CLICKHOUSE_CAPABILITIES
+    return CLICKHOUSE_CAPABILITIES_WITH_GEO
   }
 
   aggregate(
@@ -301,7 +320,7 @@ export class ClickhouseBridge implements Bridge {
   ): AsyncIterable<AggregateRow> {
     const client = this.assertClient()
     return executeAggregateQueries(
-      buildAggregateSql(opts, CLICKHOUSE_DIALECT),
+      buildAggregateSql(opts, CLICKHOUSE_DIALECT_WITH_GEO),
       async (sql, params) => {
         // ClickHouse requires typed placeholders ({p1:UInt32}, {p1:String},
         // ...). The dialect emits everything as `{pN:String}` because it

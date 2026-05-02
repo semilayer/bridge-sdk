@@ -17,14 +17,31 @@ import {
   buildAggregateSql,
   buildWhereSql,
   executeAggregateQueries,
+  bigqueryGeohashExpr,
+  bigqueryDecodeGeoField,
   BIGQUERY_DIALECT,
   BIGQUERY_CAPABILITIES,
   type AggregateOptions,
   type AggregateRow,
   type BridgeAggregateCapabilities,
   type BridgeExecutionContext,
+  type SqlAggregateDialect,
   type WhereSqlDialect,
 } from '@semilayer/bridge-sdk'
+
+// BigQuery has native ST_GEOHASH on GEOGRAPHY values — built into the
+// engine, no setup. Bake it into the dialect once.
+const BIGQUERY_DIALECT_WITH_GEO: SqlAggregateDialect = {
+  ...BIGQUERY_DIALECT,
+  geohashExpr: bigqueryGeohashExpr,
+  decodeGeoField: bigqueryDecodeGeoField,
+}
+
+const BIGQUERY_CAPABILITIES_WITH_GEO: BridgeAggregateCapabilities = {
+  ...BIGQUERY_CAPABILITIES,
+  geoBucket: true,
+  geohashBucket: true,
+}
 
 // BigQuery where dialect — backtick-quoted identifiers, `?` positional binds
 // (BigQuery's Node SDK accepts `params: unknown[]` for positional `?`).
@@ -278,7 +295,7 @@ export class BigqueryBridge implements Bridge {
   }
 
   aggregateCapabilities(): BridgeAggregateCapabilities {
-    return BIGQUERY_CAPABILITIES
+    return BIGQUERY_CAPABILITIES_WITH_GEO
   }
 
   aggregate(
@@ -296,7 +313,7 @@ export class BigqueryBridge implements Bridge {
       target: `${projectId}.${dataset}.${opts.target}`,
     }
     return executeAggregateQueries(
-      buildAggregateSql(qualifiedOpts, BIGQUERY_DIALECT),
+      buildAggregateSql(qualifiedOpts, BIGQUERY_DIALECT_WITH_GEO),
       async (query, params) => {
         const [rows] = await bq.query({ query, params: params as unknown[] })
         return rows as Array<Record<string, unknown>>

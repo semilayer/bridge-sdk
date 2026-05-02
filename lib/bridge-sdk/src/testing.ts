@@ -22,9 +22,15 @@ export {
   runAggregateCompliance,
   aggregateFixture,
   fixtureToBridgeRows,
+  joinChildFixture,
+  joinChildFixtureToBridgeRows,
+  geoFixture,
+  geoFixtureToBridgeRows,
   collect as collectAggregateStream,
 } from './aggregate-suite.js'
 export type {
   AggregateSuiteOptions,
   AggregateFixtureRow,
+  JoinChildFixtureRow,
+  GeoFixtureRow,
 } from './aggregate-suite.js'

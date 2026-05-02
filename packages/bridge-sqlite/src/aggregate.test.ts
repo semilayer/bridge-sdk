@@ -6,9 +6,14 @@ import { describe, beforeAll, afterAll } from 'vitest'
 import Database from 'better-sqlite3'
 import { SqliteBridge } from './bridge.js'
 import { SQLITE_FAMILY_CAPABILITIES } from '@semilayer/bridge-sdk'
-import { aggregateFixture, runAggregateCompliance } from '@semilayer/bridge-sdk/testing'
+import {
+  aggregateFixture,
+  joinChildFixture,
+  runAggregateCompliance,
+} from '@semilayer/bridge-sdk/testing'
 
 const TABLE = 'sl_agg_fixture'
+const JOIN_CHILD_TABLE = 'sl_agg_join_child'
 const DB_PATH = ':memory:'
 
 describe('SqliteBridge aggregate', () => {
@@ -55,6 +60,18 @@ describe('SqliteBridge aggregate', () => {
       })
     }
 
+    setup.exec(`
+      CREATE TABLE ${JOIN_CHILD_TABLE} (
+        pk     INTEGER PRIMARY KEY,
+        region TEXT NOT NULL,
+        tier   TEXT NOT NULL
+      )
+    `)
+    const insertChild = setup.prepare(
+      `INSERT INTO ${JOIN_CHILD_TABLE} (pk, region, tier) VALUES (@pk, @region, @tier)`,
+    )
+    for (const r of joinChildFixture()) insertChild.run(r)
+
     bridge = new SqliteBridge({ path: dbPath })
     await bridge.connect()
   })
@@ -68,6 +85,7 @@ describe('SqliteBridge aggregate', () => {
     getBridge: () => bridge,
     target: TABLE,
     capabilities: SQLITE_FAMILY_CAPABILITIES,
+    joinChildFixtureTarget: JOIN_CHILD_TABLE,
   })
 })
 

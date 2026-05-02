@@ -8,10 +8,17 @@ import { createClient } from '@clickhouse/client'
 import { describe, beforeAll, afterAll } from 'vitest'
 import { ClickhouseBridge } from './bridge.js'
 import { CLICKHOUSE_CAPABILITIES } from '@semilayer/bridge-sdk'
-import { aggregateFixture, runAggregateCompliance } from '@semilayer/bridge-sdk/testing'
+import {
+  aggregateFixture,
+  geoFixture,
+  joinChildFixture,
+  runAggregateCompliance,
+} from '@semilayer/bridge-sdk/testing'
 
 const CH_URL = process.env['CLICKHOUSE_URL']
 const TABLE = 'sl_agg_fixture'
+const JOIN_CHILD_TABLE = 'sl_agg_join_child'
+const GEO_TABLE = 'sl_agg_geo_fixture'
 
 describe.skipIf(!CH_URL)('ClickhouseBridge aggregate integration', () => {
   let bridge: ClickhouseBridge
@@ -54,6 +61,39 @@ describe.skipIf(!CH_URL)('ClickhouseBridge aggregate integration', () => {
     }))
     await setup.insert({ table: TABLE, values: rows, format: 'JSONEachRow' })
 
+    await setup.command({ query: `DROP TABLE IF EXISTS ${JOIN_CHILD_TABLE}` })
+    await setup.command({
+      query: `
+        CREATE TABLE ${JOIN_CHILD_TABLE} (
+          pk     UInt32,
+          region String,
+          tier   String
+        ) ENGINE = MergeTree() ORDER BY pk
+      `,
+    })
+    await setup.insert({
+      table: JOIN_CHILD_TABLE,
+      values: joinChildFixture(),
+      format: 'JSONEachRow',
+    })
+
+    await setup.command({ query: `DROP TABLE IF EXISTS ${GEO_TABLE}` })
+    await setup.command({
+      query: `
+        CREATE TABLE ${GEO_TABLE} (
+          id   UInt32,
+          lat  Float64,
+          lng  Float64,
+          city String
+        ) ENGINE = MergeTree() ORDER BY id
+      `,
+    })
+    await setup.insert({
+      table: GEO_TABLE,
+      values: geoFixture(),
+      format: 'JSONEachRow',
+    })
+
     bridge = new ClickhouseBridge({
       // ClickhouseBridge takes host + port separately. Pass `hostname`,
       // not `host` — the latter is `host:port` and gets concatenated
@@ -71,12 +111,23 @@ describe.skipIf(!CH_URL)('ClickhouseBridge aggregate integration', () => {
   afterAll(async () => {
     await bridge?.disconnect()
     await setup?.command({ query: `DROP TABLE IF EXISTS ${TABLE}` })
+    await setup?.command({ query: `DROP TABLE IF EXISTS ${JOIN_CHILD_TABLE}` })
+    await setup?.command({ query: `DROP TABLE IF EXISTS ${GEO_TABLE}` })
     await setup?.close()
   })
 
   runAggregateCompliance({
     getBridge: () => bridge,
     target: TABLE,
-    capabilities: CLICKHOUSE_CAPABILITIES,
+    // ClickHouse advertises native geohash + h3, so the suite runs both
+    // geo blocks against the live engine.
+    capabilities: {
+      ...CLICKHOUSE_CAPABILITIES,
+      geoBucket: true,
+      geohashBucket: true,
+      h3Bucket: true,
+    },
+    joinChildFixtureTarget: JOIN_CHILD_TABLE,
+    geoFixtureTarget: GEO_TABLE,
   })
 })
