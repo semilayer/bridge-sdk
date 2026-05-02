@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.4.0](https://github.com/semilayer/bridge-sdk/compare/bridge-clickhouse-v1.3.0...bridge-clickhouse-v1.4.0) (2026-05-02)
+
+
+### Features
+
+* **bridge-sdk:** aggregate.joins + geohash/h3 bucket pushdown ([a42d6b5](https://github.com/semilayer/bridge-sdk/commit/a42d6b50374f9344ae5806f313f0acddb8781022))
+* **bridge-sdk:** aggregate.joins + geohash/h3 bucket pushdown ([8620d51](https://github.com/semilayer/bridge-sdk/commit/8620d510b9eb5bc8f268f67d3bc6b3a20cf9f799))
+
+
+### Bug Fixes
+
+* **bridge-clickhouse:** set join_use_nulls=1 on aggregate queries ([6bb1538](https://github.com/semilayer/bridge-sdk/commit/6bb153818520c6a80e769bde6e1f8d033ca2a6d0))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @semilayer/bridge-sdk bumped to 1.5.0
+
 ## [1.3.0](https://github.com/semilayer/bridge-sdk/compare/bridge-clickhouse-v1.2.0...bridge-clickhouse-v1.3.0) (2026-04-29)
 
 
