@@ -350,6 +350,13 @@ export class ClickhouseBridge implements Bridge {
           query: typedSql,
           query_params: queryParams,
           format: 'JSONEachRow',
+          // `join_use_nulls=1` makes LEFT JOIN return NULL for unmatched
+          // rows on the right side instead of the column type's default
+          // (empty string, 0, etc). Without this, the drop-null WHERE
+          // filter on a joined dim cannot distinguish "joined value is
+          // empty" from "no match" — so unmatched parents leak into
+          // results. The setting is a no-op for join-free queries.
+          clickhouse_settings: { join_use_nulls: 1 },
         })
         const rows = (await resultSet.json()) as Array<Record<string, unknown>>
         return rows
