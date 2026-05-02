@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.0](https://github.com/semilayer/bridge-sdk/compare/bridge-redis-v1.3.0...bridge-redis-v1.4.0) (2026-05-02)
+
+
+### Features
+
+* **bridge-sdk:** aggregate.joins + geohash/h3 bucket pushdown ([a42d6b5](https://github.com/semilayer/bridge-sdk/commit/a42d6b50374f9344ae5806f313f0acddb8781022))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @semilayer/bridge-sdk bumped to 1.5.0
+
 ## [1.3.0](https://github.com/semilayer/bridge-sdk/compare/bridge-redis-v1.2.0...bridge-redis-v1.3.0) (2026-04-29)
 
 
